@@ -5,12 +5,12 @@ open Microsoft.VisualStudio.TestTools.UnitTesting
 open AlgEff.Effect
 open AlgEff.Handler
 
-/// 继承 LogEffect 的子类（用于分派不误配测试）。
+/// LogEffect subclass (for testing that dispatch does not misroute).
 type MyLogEffect<'next>(str : string, cont : unit -> 'next) =
     inherit LogEffect<'next>(str, cont)
 
-/// 4 个 handler：log + int state + string state + console。
-/// int/string 两个 State 家族 handler 必须各自精确路由。
+/// Four handlers: log + int state + string state + console.
+/// The int/string State-family handlers must each be routed exactly.
 type FourEnv(initialInt : int, initialString : string, consoleInput : List<string>) as this =
     inherit Environment<unit>()
     let handler =
@@ -25,7 +25,7 @@ type FourEnv(initialInt : int, initialString : string, consoleInput : List<strin
     interface ConsoleContext
     member _.Handler = handler
 
-/// 5 个 handler 嵌套组合（突破 combine5 上限）。
+/// Five handlers combined by nesting (exceeds the combine5 limit).
 type FiveEnv() as this =
     inherit Environment<unit>()
     let handler =
@@ -45,7 +45,7 @@ type FiveEnv() as this =
     interface NonDetContext
     member _.Handler = handler
 
-/// 声明基类 Effect<_> 的 handler（通过基类链回溯命中）。
+/// Handler declaring the base type Effect<_> (matched via base-class chain lookup).
 type EverythingHandler<'env, 'ret>(env : 'env) =
     inherit SimpleHandler<'env, 'ret, bool>()
     override _.Start = false
@@ -62,7 +62,7 @@ type EverythingEnv<'ret>() as this =
     interface LogContext
     member _.Handler = handler
 
-/// 基类声明 handler 与 State handler 的组合（验证分派表的基类链回溯）。
+/// Base-declared handler combined with a State handler (verifies base-class chain lookup in the dispatch table).
 type EverythingStateEnv(initial : int) as this =
     inherit Environment<int>()
     let handler =
@@ -114,7 +114,7 @@ type CombineTest() =
 
     [<TestMethod>]
     member _.SubclassIsNotRoutedToBaseHandler() =
-        // 子类效应不被 LogEffect 家族 handler 误吞（旧 `:?` 形状测试会误吞）
+        // Subclass effects are not swallowed by the LogEffect family handler (the old `:?`-shaped test swallowed them)
         let env = LogEnv()
         let program =
             Program.Effect (MyLogEffect("sneaky", fun () -> Pure 0))
@@ -137,7 +137,7 @@ type CombineTest() =
 
     [<TestMethod>]
     member _.BaseTypeDeclarationMatches() =
-        // handler 声明基类 Effect<_> 时，具体效应通过基类链回溯命中
+        // When the handler declares the base type Effect<_>, concrete effects are matched via base-class chain lookup
         let env = EverythingEnv<int>()
         let program =
             effect {

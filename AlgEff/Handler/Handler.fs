@@ -3,15 +3,15 @@
 open System
 open AlgEff.Effect
 
-/// 未处理效应异常。
+/// Exception raised when an effect is not handled.
 type UnhandledEffectException(effect : obj) =
     inherit System.Exception(sprintf "Unhandled effect %O" effect)
     member _.Effect = effect
 
-/// 纯控制台输入耗尽。
+/// Console input exhausted.
 exception NoMoreInputException
 
-/// 处理剩余程序的续体（异步）。
+/// Continuation that handles the remainder of the program (async).
 /// 'st:  State type maintained by the handler.
 /// 'stx: State type answered by the continuation, which may be
 ///       different from the state managed by the handler (e.g. the
@@ -42,7 +42,7 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
     /// Transforms the handler's final state.
     abstract member Finish : 'st -> 'fin
 
-    /// Effect 类型注册表（分派表用，open generic definition 或具体类型）。
+    /// Registry of effect types (for the dispatch table; open generic definitions or concrete types).
     abstract member HandledEffectTypes : Type list
 
     /// Runs the given program asynchronously, producing a list of results.
@@ -96,7 +96,7 @@ type SimpleHandler<'ctx, 'ret, 'st>() =
     /// No-op final transformation.
     default _.Finish(state) = state
 
-/// 无任何 handler 的环境处理器（运行任何程序都会得到未处理效应）。
+/// An environment handler with no handlers (running any program yields an unhandled effect).
 type NoopHandler<'ctx, 'ret, 'st, 'fin>(start : 'st, finish : 'st -> 'fin) =
     inherit Handler<'ctx, 'ret, 'st, 'fin>()
     override _.Start = start
@@ -105,7 +105,7 @@ type NoopHandler<'ctx, 'ret, 'st, 'fin>(start : 'st, finish : 'st -> 'fin) =
     override _.HandledEffectTypes = []
 
 /// Combines two effect handlers using the given finish.
-/// 分派表：effect 封闭类型 → 子 handler 索引，O(1) 精确路由。
+/// Dispatch table: effect closed type -> sub-handler index, O(1) exact routing.
 type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
     (handler1 : Handler<'ctx, 'ret, 'st1, 'fin1>,
      handler2 : Handler<'ctx, 'ret, 'st2, 'fin2>,
@@ -118,7 +118,7 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
         for t in handler2.HandledEffectTypes do table.[t] <- 1
         table
 
-    /// 沿基类链回溯查找（支持声明基类类型的 handler）。
+    /// Looks up a type by walking up the base-class chain (supports handlers that declare base-class types).
     let rec lookup (t : Type) =
         if isNull t then None
         else
@@ -136,7 +136,7 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
             | Some 0 -> handler1.TryStep(state1, effect, step1)
             | Some 1 -> handler2.TryStep(state2, effect, step2)
             | _ ->
-                // 线性兜底：注册遗漏或未声明类型的 handler
+                // Linear fallback: handlers for effects not in the registry or of undeclared types
                 handler1.TryStep(state1, effect, step1)
                 |> Option.orElseWith (fun () ->
                     handler2.TryStep(state2, effect, step2))
@@ -150,13 +150,15 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
 
 module Handler =
 
-    /// 无 handler 的处理器（用于测试未处理效应路径）。
+    /// A handler with no handlers (for testing the unhandled-effect path).
     let noopHandler<'ctx, 'ret> : Handler<'ctx, 'ret, unit, unit> =
         NoopHandler((), id) :> _
 
     /// Adapts a step function for use in an effect handler.
-    /// 精确类型匹配；仅当声明类型是抽象家族类型（如 StateEffect<_>）时才接受子类，
-    /// 否则（如具体类 LogEffect<_>）只接受精确类型——子类效应不会被家族 handler 误吞。
+    /// Exact type matching: subclasses are accepted only when the declared type is an
+    /// abstract family type (e.g. StateEffect<_>); otherwise (e.g. the concrete type
+    /// LogEffect<_>) only the exact type is accepted — subclass effects are not swallowed
+    /// by family handlers.
     let tryStep<'eff, 'next, 'ret when 'eff :> Effect<'next>>
         (effect : Effect<'next>)
         (step : 'eff -> 'ret) =

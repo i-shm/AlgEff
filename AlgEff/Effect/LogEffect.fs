@@ -8,7 +8,7 @@ type LogEffect<'next>(str : string, cont : unit -> 'next) =
     override _.Map(f) =
         LogEffect(str, cont >> f) :> _
 
-    /// 可读名称。
+    /// Human-readable name.
     override _.Name = sprintf "Log(%s)" str
 
     /// String to log.

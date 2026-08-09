@@ -2,54 +2,54 @@
 
 open System
 
-/// 一个 effectful 操作（自由单子链中的一个节点）。
+/// An effectful operation (one node in a free monad chain).
 [<AbstractClass>]
 type Effect<'next>() =
 
     /// Maps a function over this effect.
     abstract member Map : ('next -> 'b) -> Effect<'b>
 
-    /// Effect 的可读名称（错误信息用）。
+    /// Human-readable name for this effect (used in error messages).
     abstract member Name : string
     default this.Name = this.GetType().Name
 
     override this.ToString() = this.Name
 
-/// 异步挂起点（存在类型包装：F# 抽象成员不能带自有类型参数）。
+/// Async suspension point (existential type wrapper: F# abstract members cannot have their own type parameters).
 type AwaitNode<'ctx, 'ret>(computation : Async<obj>, continuation : obj -> Program<'ctx, 'ret>) =
 
-    /// 被挂起的异步计算（已装箱）。
+    /// The suspended async computation (boxed).
     member _.Computation = computation
 
-    /// 异步结果返回后继续执行的续体。
+    /// Continuation to run after the async result returns.
     member _.Continuation = continuation
 
-/// 一个要求特定 context（'ctx）并返回特定结果（'ret）的效应程序（自由单子）。
+/// An effectful program (free monad) requiring a specific context ('ctx) and returning a specific result ('ret).
 and Program<'ctx, 'ret> =
 
-    /// 一步效应。
+    /// A single-step effect.
     | Effect of Effect<'ctx, 'ret>
 
-    /// 纯值（程序终点）。
+    /// A pure value (terminal point of the program).
     | Pure of 'ret
 
-    /// 惰性节点（while/for/try 的求值基础）。
+    /// Lazy node (the evaluation basis for while/for/try).
     | Delay of (unit -> Program<'ctx, 'ret>)
 
-    /// 异步挂起点。
+    /// Async suspension point.
     | Await of AwaitNode<'ctx, 'ret>
 
-    /// 异常捕获（try/with 与 try/finally 的基础）。
+    /// Exception catch (the basis for try/with and try/finally).
     | Catch of Program<'ctx, 'ret> * (exn -> Program<'ctx, 'ret>)
 
-/// 一个程序中的一步效应。
+/// A single-step effect within a program.
 and Effect<'ctx, 'ret> = Effect<Program<'ctx, 'ret>>
 
-/// obj 版 Await 节点（供 Program.bind 重组用）。
+/// obj-typed Await node (for restructuring within Program.bind).
 type ObjectAwaitImpl<'ctx, 'ret>(computation : Async<obj>, continuation : obj -> Program<'ctx, 'ret>) =
     inherit AwaitNode<'ctx, 'ret>(computation, continuation)
 
-/// 类型安全的 Await 节点构造器。
+/// Type-safe Await node constructor.
 type AwaitImpl<'a, 'ctx, 'ret>(computation : Async<'a>, continuation : 'a -> Program<'ctx, 'ret>) =
     inherit AwaitNode<'ctx, 'ret>(
         async {
@@ -70,7 +70,7 @@ module Program =
                 Await (ObjectAwaitImpl<'ctx, _>(node.Computation, fun value -> bind f (node.Continuation value)))
             | Catch (comp, handler) -> Catch (bind f comp, fun e -> bind f (handler e))
 
-/// Program builder。
+/// Program builder.
 type ProgramBuilder() =
     let (>>=) program f = Program.bind f program
     member this.Bind(program, f) = program >>= f

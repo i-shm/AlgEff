@@ -7,19 +7,19 @@ open System
 open AlgEff.Effect
 open AlgEff.Handler
 
-/// 没有任何 handler 的环境（制造未处理效应）。
+/// Environment with no handlers (produces an unhandled effect).
 type EmptyEnv<'ret>() =
     inherit Environment<'ret>()
     member _.Handler = Handler.noopHandler
 
-/// 仅 NonDet(pickAll) 的环境。
+/// Environment with only NonDet (pickAll).
 type NonDetOnlyEnv<'ret>(createHandler : _ -> NonDetHandler<NonDetOnlyEnv<'ret>, 'ret>) as this =
     inherit Environment<'ret>()
     let handler = createHandler(this)
     interface NonDetContext
     member _.Handler = handler
 
-/// 仅纯 Console 的环境。
+/// Environment with only the pure Console handler.
 type ConsoleOnlyEnv<'ret>(input : List<string>) as this =
     inherit Environment<'ret>()
     let handler = PureConsoleHandler(input, this)

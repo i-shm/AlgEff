@@ -3,21 +3,21 @@ namespace AlgEff.Test
 open AlgEff.Effect
 open AlgEff.Handler
 
-/// 单一 State handler 的环境。
+/// Environment with a single State handler.
 type StateEnv<'state, 'ret>(initial : 'state) as this =
     inherit Environment<'ret>()
     let handler = PureStateHandler(initial, this)
     interface StateContext<'state>
     member _.Handler = handler
 
-/// 单一 Log handler 的环境。
+/// Environment with a single Log handler.
 type LogEnv<'ret>() as this =
     inherit Environment<'ret>()
     let handler = PureLogHandler(this)
     interface LogContext
     member _.Handler = handler
 
-/// State + Log 双 handler 环境。
+/// Environment with both a State and a Log handler.
 type StateLogEnv<'state, 'ret>(initial : 'state) as this =
     inherit Environment<'ret>()
     let handler =
@@ -28,7 +28,7 @@ type StateLogEnv<'state, 'ret>(initial : 'state) as this =
     interface LogContext
     member _.Handler = handler
 
-/// 声明 LogContext 但无 Log handler（制造"handler 缺失"场景）。
+/// Declares LogContext but has no Log handler (creates a "missing handler" scenario).
 type StateOnlyWithLogContextEnv<'state, 'ret>(initial : 'state) as this =
     inherit Environment<'ret>()
     let handler = PureStateHandler(initial, this)
@@ -36,7 +36,7 @@ type StateOnlyWithLogContextEnv<'state, 'ret>(initial : 'state) as this =
     interface LogContext
     member _.Handler = handler
 
-/// 用 HandlerEnvironment 基类定义的环境（对比 StateEnv 的 as-this 样板）。
+/// Environment defined with the HandlerEnvironment base class (contrasting StateEnv's as-this boilerplate).
 type StateEnvWithBase<'state, 'ret>(initial : 'state) =
     inherit HandlerEnvironment<StateEnvWithBase<'state, 'ret>, 'ret, 'state, 'state>()
     override this.BuildHandler = PureStateHandler(initial, this)

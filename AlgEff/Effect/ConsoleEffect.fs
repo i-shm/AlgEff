@@ -19,7 +19,7 @@ and WriteLineEffect<'next>(str : string, cont : unit -> 'next) =
     /// Type-safe subtype enumeration.
     override this.Case = WriteLine this
 
-    /// 可读名称。
+    /// Human-readable name.
     override _.Name = sprintf "WriteLine(%s)" str
 
     /// String to write.
@@ -39,7 +39,7 @@ and ReadLineEffect<'next>(cont : string -> 'next) =
     /// Type-safe subtype enumeration.
     override this.Case = ReadLine this
 
-    /// 可读名称。
+    /// Human-readable name.
     override _.Name = "ReadLine"
 
     /// Continuation to next effect.
