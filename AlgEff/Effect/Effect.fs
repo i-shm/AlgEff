@@ -70,15 +70,33 @@ module Program =
                 Await (ObjectAwaitImpl<'ctx, _>(node.Computation, fun value -> bind f (node.Continuation value)))
             | Catch (comp, handler) -> Catch (bind f comp, fun e -> bind f (handler e))
 
-/// Program builder（CE 标准成员在 Task 4 补齐）。
+/// Program builder。
 type ProgramBuilder() =
     let (>>=) program f = Program.bind f program
-    member _.Bind(program, f) = program >>= f
-    member _.Return(value) = Pure value
+    member this.Bind(program, f) = program >>= f
+    member this.Bind(computation : Async<'a>, f : 'a -> Program<'ctx, 'b>) =
+        Await (AwaitImpl (computation, f))
+    member this.Return(value) = Pure value
     member _.ReturnFrom(value) = value
-    member _.Zero() = Pure ()
-    member _.Combine(program1, program2) = program1 >>= (fun () -> program2)
-    member _.Delay(f) = Delay f
+    member this.Zero() = Pure ()
+    member this.Combine(program1, program2) = program1 >>= (fun () -> program2)
+    member _.Delay(f : unit -> Program<'ctx, 'a>) = Delay f
+    member this.While(guard : unit -> bool, body : Program<'ctx, unit>) =
+        Delay (fun () ->
+            if guard () then body >>= (fun () -> this.While(guard, body))
+            else this.Zero ())
+    member this.For(sequence : seq<'a>, body : 'a -> Program<'ctx, unit>) =
+        Delay (fun () ->
+            (this.Zero (), sequence) ||> Seq.fold (fun acc item -> acc >>= (fun () -> body item)))
+    member this.TryWith(comp : Program<'ctx, 'a>, handler : exn -> Program<'ctx, 'a>) =
+        Catch (comp, handler)
+    member this.TryFinally(comp : Program<'ctx, 'a>, compensation : Program<'ctx, unit>) =
+        let withCompensation program =
+            program >>= (fun v -> compensation >>= (fun () -> this.Return v))
+        Catch (withCompensation comp, fun e -> compensation >>= (fun () -> raise e))
+    member this.Using(resource : 'a when 'a :> System.IDisposable, body : 'a -> Program<'ctx, 'b>) =
+        let dispose = Delay (fun () -> resource.Dispose (); this.Zero ())
+        this.TryFinally (body resource, dispose)
 
 [<AutoOpen>]
 module ProgramBuilder =

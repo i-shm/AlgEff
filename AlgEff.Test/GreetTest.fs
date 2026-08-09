@@ -35,7 +35,7 @@ type GreetTest() =
                 do! Console.writelnf "Hello %s" name
                 do! Log.writef "Name is %s" name
                 do! State.put name
-                let! state = State.get
+                let! state : string = State.get
                 return state.Length
             }
 

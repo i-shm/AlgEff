@@ -12,6 +12,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="TestEnvironments.fs" />
+    <Compile Include="EffectCETest.fs" />
     <Compile Include="ErrorTest.fs" />
     <Compile Include="GreetTest.fs" />
     <Compile Include="StateTest.fs" />
