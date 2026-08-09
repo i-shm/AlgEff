@@ -105,23 +105,41 @@ type NoopHandler<'ctx, 'ret, 'st, 'fin>(start : 'st, finish : 'st -> 'fin) =
     override _.HandledEffectTypes = []
 
 /// Combines two effect handlers using the given finish.
+/// 分派表：effect 封闭类型 → 子 handler 索引，O(1) 精确路由。
 type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
     (handler1 : Handler<'ctx, 'ret, 'st1, 'fin1>,
-    handler2 : Handler<'ctx, 'ret, 'st2, 'fin2>,
-    finish : ('fin1 * 'fin2) -> 'fin) =
+     handler2 : Handler<'ctx, 'ret, 'st2, 'fin2>,
+     finish : ('fin1 * 'fin2) -> 'fin) =
     inherit Handler<'ctx, 'ret, 'st1 * 'st2, 'fin>()
 
-    /// Combined initial state.
+    let table =
+        let table = System.Collections.Generic.Dictionary<Type, int>()
+        for t in handler1.HandledEffectTypes do table.[t] <- 0
+        for t in handler2.HandledEffectTypes do table.[t] <- 1
+        table
+
+    /// 沿基类链回溯查找（支持声明基类类型的 handler）。
+    let rec lookup (t : Type) =
+        if isNull t then None
+        else
+            match table.TryGetValue t with
+                | true, index -> Some index
+                | _ -> lookup t.BaseType
+
     override _.Start = handler1.Start, handler2.Start
 
-    /// Attempts to handle a single effect by routing it first to one handler,
-    /// and then to the other.
+    /// Attempts to handle a single effect, routed via the dispatch table.
     override _.TryStep((state1, state2), effect, cont) =
-        handler1.TryStep(state1, effect, fun state1' program ->
-            cont (state1', state2) program)
-            |> Option.orElseWith (fun () ->
-                handler2.TryStep(state2, effect, fun state2' program ->
-                    cont (state1, state2') program))
+        let step1 = fun state1' program -> cont (state1', state2) program
+        let step2 = fun state2' program -> cont (state1, state2') program
+        match lookup (effect.GetType()) with
+            | Some 0 -> handler1.TryStep(state1, effect, step1)
+            | Some 1 -> handler2.TryStep(state2, effect, step2)
+            | _ ->
+                // 线性兜底：注册遗漏或未声明类型的 handler
+                handler1.TryStep(state1, effect, step1)
+                |> Option.orElseWith (fun () ->
+                    handler2.TryStep(state2, effect, step2))
 
     /// Combines the given handlers' final states.
     override _.Finish((state1, state2)) =
@@ -137,12 +155,18 @@ module Handler =
         NoopHandler((), id) :> _
 
     /// Adapts a step function for use in an effect handler.
+    /// 精确类型匹配；仅当声明类型是抽象家族类型（如 StateEffect<_>）时才接受子类，
+    /// 否则（如具体类 LogEffect<_>）只接受精确类型——子类效应不会被家族 handler 误吞。
     let tryStep<'eff, 'next, 'ret when 'eff :> Effect<'next>>
         (effect : Effect<'next>)
         (step : 'eff -> 'ret) =
-            match effect with
-                | :? 'eff as eff -> step eff |> Some
-                | _ -> None
+            let effectType = effect.GetType()
+            let effType = typeof<'eff>
+            let matches =
+                effectType = effType
+                || (effType.IsAbstract && effType.IsAssignableFrom(effectType))
+            if matches then step (effect :?> 'eff) |> Some
+            else None
 
     /// Combines two handlers using the given finish.
     let private combine handler1 handler2 finish =
