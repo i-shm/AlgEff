@@ -39,9 +39,9 @@ Program<'ctx, string when 'ctx :> LogContext and 'ctx :> ConsoleContext>
 
 The first type parameter (`'ctx`) indicates that the program requires handlers for both logging and console effects, and the second one (`string`) indicates that the program returns a string. It's important to understand that this program doesn't actually **do** anything until it's executed. The `program` value itself is purely functional -- no side-effects occurred while creating it.
 
-## 2.0 新特性
+## 2.0 features
 
-### 循环、异常与资源管理
+### Loops, exceptions, and resource management
 
 ```fsharp
 // while / for
@@ -62,28 +62,28 @@ let withResource r =
     }
 ```
 
-### 异步 IO
+### Async IO
 
 ```fsharp
 let fetch = effect {
-    let! body = http.getAsync url   // let! 直接绑定 Async<'T>
+    let! body = http.getAsync url   // let! binds an Async<'T> directly
     do! Log.writef "Got %d bytes" body.Length
     return body
 }
 fetch |> handler.RunManyAsync |> Async.RunSynchronously
 ```
 
-### 错误处理
+### Error handling
 
-- 未处理效应抛出 `UnhandledEffectException`（含效应名称）
-- 多结果程序调用 `Run` 抛出带说明的 `InvalidOperationException`（改用 `RunMany`）
-- 纯控制台输入耗尽抛出 `NoMoreInputException`
+- An unhandled effect raises `UnhandledEffectException`, which includes the effect's name
+- Calling `Run` on a multi-result program raises a descriptive `InvalidOperationException` (use `RunMany` instead)
+- Exhausting pure console input raises `NoMoreInputException`
 
-### 组合
+### Composition
 
-- `Handler.combine2..5` 内部使用 effect 类型分派表（O(1) 路由），嵌套组合支持任意数量 handler
-- 子类效应不会被声明为基类的 handler 误配
-- `HandlerEnvironment<'env, 'ret, 'st, 'fin>` 基类免去 `as this` 样板：
+- `Handler.combine2..5` route effects through an internal type dispatch table (O(1)); nested combination supports any number of handlers
+- Subclass effects are not misrouted to handlers declared for their base types
+- The `HandlerEnvironment<'env, 'ret, 'st, 'fin>` base class removes the `as this` boilerplate:
 
 ```fsharp
 type Env() =
@@ -96,13 +96,13 @@ type Env() =
     interface StateContext<int>
 ```
 
-### 语义说明
+### Semantics
 
-- `try` 块捕获异常时，handler 状态 = try 块入口处的状态（纯函数线程化状态在异常展开时丢失）
-- `RunManyAsync` 为统一实现；`Run`/`RunMany` 是对其 `Async.RunSynchronously` 的封装
-- 未处理效应以 `UnhandledEffectException`（携带 effect 对象）从运行循环抛出，可被程序内 `try/with` 捕获——这也保证 `try/finally` 的补偿在未处理效应时仍会执行
-- 多结果程序（如 `pickAll`）中绑定的 Async 计算按分支重新执行
-- 同时存在两个 `StateContext` 时需显式类型标注（`State.put<int, Env>`）
+- When a `try` block catches an exception, the handler state is the state at the entry to the `try` block (pure-functional state threading is lost on exception unwinding)
+- `RunManyAsync` is the unified implementation; `Run` and `RunMany` are thin `Async.RunSynchronously` wrappers around it
+- An unhandled effect is raised by the run loop as an `UnhandledEffectException` (carrying the effect object), so it can be caught by a program's own `try/with` -- this also guarantees that `try/finally` compensation still runs when an effect is unhandled
+- Async computations bound inside multi-shot programs (e.g. `pickAll`) re-execute once per branch
+- With two `StateContext` implementations in scope, explicit type annotations are required (e.g. `State.put<int, Env>`)
 
 ## Creating a runtime environment
 
