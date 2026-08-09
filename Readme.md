@@ -39,6 +39,68 @@ Program<'ctx, string when 'ctx :> LogContext and 'ctx :> ConsoleContext>
 
 The first type parameter (`'ctx`) indicates that the program requires handlers for both logging and console effects, and the second one (`string`) indicates that the program returns a string. It's important to understand that this program doesn't actually **do** anything until it's executed. The `program` value itself is purely functional -- no side-effects occurred while creating it.
 
+## 2.0 新特性
+
+### 循环、异常与资源管理
+
+```fsharp
+// while / for
+let countdown n =
+    effect {
+        for i in [ n .. -1 .. 1 ] do
+            do! Log.writef "%d" i
+    }
+
+// try / finally / use
+let withResource r =
+    effect {
+        use _ = r
+        try
+            do! State.put 42
+        finally
+            do! Log.write "done"
+    }
+```
+
+### 异步 IO
+
+```fsharp
+let fetch = effect {
+    let! body = http.getAsync url   // let! 直接绑定 Async<'T>
+    do! Log.writef "Got %d bytes" body.Length
+    return body
+}
+fetch |> handler.RunManyAsync |> Async.RunSynchronously
+```
+
+### 错误处理
+
+- 未处理效应抛出 `UnhandledEffectException`（含效应名称）
+- 多结果程序调用 `Run` 抛出带说明的 `InvalidOperationException`（改用 `RunMany`）
+- 纯控制台输入耗尽抛出 `NoMoreInputException`
+
+### 组合
+
+- `Handler.combine2..5` 内部使用 effect 类型分派表（O(1) 路由），嵌套组合支持任意数量 handler
+- 子类效应不会被声明为基类的 handler 误配
+- `HandlerEnvironment<'env, 'ret, 'st, 'fin>` 基类免去 `as this` 样板：
+
+```fsharp
+type Env() =
+    inherit HandlerEnvironment<Env, unit, List<string> * int, List<string> * int>()
+    override this.BuildHandler =
+        Handler.combine2
+            (PureLogHandler(this))
+            (PureStateHandler(0, this))
+    interface LogContext
+    interface StateContext<int>
+```
+
+### 语义说明
+
+- `try` 块捕获异常时，handler 状态 = try 块入口处的状态（纯函数线程化状态在异常展开时丢失）
+- `RunManyAsync` 为统一实现；`Run`/`RunMany` 是对其 `Async.RunSynchronously` 的封装
+
 ## Creating a runtime environment
 
 In order to run this program (and potentially cause actual side-effects), we must define an environment that satisfies the program's requirements:
@@ -64,11 +126,11 @@ The important thing to note here is that our environment contains both a log han
 
 Now that we have both a program and an environment that satisfies its requirements, we can actually run it:
 ```fsharp
-let name, (log, Unit) =
+let name, (log, NoState) =
     ProgramEnv().Handler.Run(program)
 ```
 
-Running a program returns a 2-tuple where the first element is the value returned by the program (`name`) and the second element is the final state of the environment's handlers. Because there are two handlers, the final state is itself a 2-tuple containing the log (`log`) and the console state (`Unit` here because we used an actual console with side-effects rather than simulating I/O in memory). The resulting console might look like this:
+Running a program returns a 2-tuple where the first element is the value returned by the program (`name`) and the second element is the final state of the environment's handlers. Because there are two handlers, the final state is itself a 2-tuple containing the log (`log`) and the console state. The actual console handler is stateless (it performs side-effects directly instead of simulating I/O in memory), so its state value is `NoState`. The resulting console might look like this:
 
 ```
 What is your name?
@@ -114,7 +176,7 @@ type PureLogHandler<'env, 'ret when 'env :> LogContext and 'env :> Environment<'
     override _.Start = []
 
     /// Adds a string to the log.
-    override _.TryStep<'stx>(log, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(log, effect, cont) =
         Handler.tryStep effect (fun (logEff : LogEffect<_>) ->
             let log' = logEff.String :: log
             let next = logEff.Cont()
@@ -122,4 +184,7 @@ type PureLogHandler<'env, 'ret when 'env :> LogContext and 'env :> Environment<'
 
     /// Puts the log in chronological order.
     override _.Finish(log) = List.rev log
+
+    /// Handles LogEffect.
+    override _.HandledEffectTypes = [ typeof<LogEffect<Program<'env, 'ret>>> ]
 ```
