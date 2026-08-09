@@ -129,3 +129,4 @@ type EffectCETest() =
         let result, state = env.Handler.Run(program)
         Assert.AreEqual(9, result)
         Assert.AreEqual(9, state)
+        Assert.AreSame(env.Handler, env.Handler)
