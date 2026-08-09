@@ -135,3 +135,36 @@ type NonDetTest() =
                 [(2, 1); (4, 2); (1, 3); (3, 4)]
                 [(3, 1); (1, 2); (4, 3); (2, 4)]
             ], positions)
+
+    [<TestMethod>]
+    member _.PickMaxNestedDecide() =
+        let program =
+            effect {
+                let! a = NonDet.choose 1 5
+                let! b = NonDet.choose (a + 1) 10
+                return a + b
+            }
+        let results =
+            program
+            |> NonDetLogEnv(NonDetHandler.pickMax).Handler.RunMany
+            |> List.map fst
+        Assert.AreEqual([ 15 ], results)
+
+    [<TestMethod>]
+    member _.PickMaxWithPickAllMixed() =
+        let program =
+            effect {
+                let! a = NonDet.choose 1 2
+                let! b = NonDet.choose 10 20
+                return a + b
+            }
+        let all =
+            program
+            |> NonDetLogEnv(NonDetHandler.pickAll).Handler.RunMany
+            |> List.map fst
+        let max =
+            program
+            |> NonDetLogEnv(NonDetHandler.pickMax).Handler.RunMany
+            |> List.map fst
+        Assert.AreEqual([ 11; 21; 12; 22 ], all)
+        Assert.AreEqual([ List.max all ], max)
