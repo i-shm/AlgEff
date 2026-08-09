@@ -215,12 +215,16 @@ type NoState = NoState
 type HandlerEnvironment<'env, 'ret, 'st, 'fin>() =
     inherit Environment<'ret>()
     let mutable handler : Handler<'env, 'ret, 'st, 'fin> option = None
-    abstract member BuildHandler :
-        HandlerEnvironment<'env, 'ret, 'st, 'fin> -> Handler<'env, 'ret, 'st, 'fin>
+
+    /// Builds the combined handler on first access to Handler.
+    /// The override may safely reference `this`.
+    abstract member BuildHandler : Handler<'env, 'ret, 'st, 'fin>
+
+    /// The combined handler, built once and cached for subsequent accesses.
     member this.Handler =
         match handler with
             | Some h -> h
             | None ->
-                let h = this.BuildHandler this
+                let h = this.BuildHandler
                 handler <- Some h
                 h
