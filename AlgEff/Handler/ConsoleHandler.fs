@@ -1,5 +1,6 @@
 ﻿namespace AlgEff.Handler
 
+open System
 open AlgEff.Effect
 
 /// Pure functional model of a console.
@@ -30,7 +31,7 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
     override _.Start = PureConsole.create input []
 
     /// Writes to or reads from the console.
-    override _.TryStep<'stx>(state, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(state, effect, cont) =
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
             match consoleEff.Case with
                 | WriteLine eff ->
@@ -52,6 +53,11 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
     override _.Finish(state) =
         { state with Output = state.Output |> List.rev }
 
+    /// Handles WriteLine and ReadLine effects.
+    override _.HandledEffectTypes =
+        [ typeof<WriteLineEffect<Program<'env, 'ret>>>
+          typeof<ReadLineEffect<Program<'env, 'ret>>> ]
+
 /// Actual console handler.
 type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Environment<'ret>>(env : 'env) =
     inherit SimpleHandler<'env, 'ret, Unit>()
@@ -60,7 +66,7 @@ type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Env
     override _.Start = Unit
 
     /// Writes to or reads from the console.
-    override _.TryStep<'stx>(Unit, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(Unit, effect, cont) =
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
             match consoleEff.Case with
                 | WriteLine eff ->
@@ -71,3 +77,8 @@ type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Env
                     let str = System.Console.ReadLine()
                     let next = eff.Cont(str)
                     cont Unit next)
+
+    /// Handles WriteLine and ReadLine effects.
+    override _.HandledEffectTypes =
+        [ typeof<WriteLineEffect<Program<'env, 'ret>>>
+          typeof<ReadLineEffect<Program<'env, 'ret>>> ]

@@ -1,5 +1,6 @@
 ﻿namespace AlgEff.Handler
 
+open System
 open AlgEff.Effect
 
 [<AbstractClass>]
@@ -12,13 +13,16 @@ type PickTrue<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret
 
     override _.Start = Unit
 
-    override _.TryStep<'stx>(Unit, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(Unit, effect, cont) =
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
-                    let next = eff.Cont(true)
-                    cont Unit next
-                | Fail _ -> [])
+                    cont Unit (eff.Cont(true))
+                | Fail _ -> async { return [] })
+
+    override _.HandledEffectTypes =
+        [ typeof<DecideEffect<Program<'env, 'ret>>>
+          typeof<FailEffect<Program<'env, 'ret>>> ]
 
 /// Picks the choice with the maximum value.
 type PickMax<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret> and 'ret : comparison>(env : 'env) =
@@ -26,15 +30,24 @@ type PickMax<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
 
     override _.Start = Unit
 
-    override _.TryStep(Unit, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(Unit, effect, cont) =
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
-                    let resT, stxT = eff.Cont(true) |> cont Unit |> List.exactlyOne
-                    let resF, stxF = eff.Cont(false) |> cont Unit |> List.exactlyOne
-                    if resT > resF then [ resT, stxT ]
-                    else [ resF, stxF ]
-                | Fail _ -> [])
+                    async {
+                        let! pairsTrue = cont Unit (eff.Cont(true))
+                        let! pairsFalse = cont Unit (eff.Cont(false))
+                        let all = pairsTrue @ pairsFalse
+                        return
+                            match all with
+                                | [] -> []
+                                | _ -> [ List.maxBy fst all ]
+                    }
+                | Fail _ -> async { return [] })
+
+    override _.HandledEffectTypes =
+        [ typeof<DecideEffect<Program<'env, 'ret>>>
+          typeof<FailEffect<Program<'env, 'ret>>> ]
 
 /// Picks all the choices.
 type PickAll<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>>(env : 'env) =
@@ -42,14 +55,20 @@ type PickAll<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
 
     override _.Start = Unit
 
-    override _.TryStep<'stx>(Unit, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(Unit, effect, cont) =
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
-                    let pairsT = eff.Cont(true) |> cont Unit
-                    let pairsF = eff.Cont(false) |> cont Unit
-                    List.append pairsT pairsF
-                | Fail _ -> [])
+                    async {
+                        let! pairsTrue = cont Unit (eff.Cont(true))
+                        let! pairsFalse = cont Unit (eff.Cont(false))
+                        return pairsTrue @ pairsFalse
+                    }
+                | Fail _ -> async { return [] })
+
+    override _.HandledEffectTypes =
+        [ typeof<DecideEffect<Program<'env, 'ret>>>
+          typeof<FailEffect<Program<'env, 'ret>>> ]
 
 module NonDetHandler =
 

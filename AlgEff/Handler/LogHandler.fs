@@ -1,5 +1,6 @@
 ﻿namespace AlgEff.Handler
 
+open System
 open AlgEff.Effect
 
 /// Pure log handler.
@@ -10,7 +11,7 @@ type PureLogHandler<'env, 'ret when 'env :> LogContext and 'env :> Environment<'
     override _.Start = []
 
     /// Adds a string to the log.
-    override _.TryStep<'stx>(log, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(log, effect, cont) =
         Handler.tryStep effect (fun (logEff : LogEffect<_>) ->
             let log' = logEff.String :: log
             let next = logEff.Cont()
@@ -18,3 +19,6 @@ type PureLogHandler<'env, 'ret when 'env :> LogContext and 'env :> Environment<'
 
     /// Puts the log in chronological order.
     override _.Finish(log) = List.rev log
+
+    /// Handles LogEffect.
+    override _.HandledEffectTypes = [ typeof<LogEffect<Program<'env, 'ret>>> ]

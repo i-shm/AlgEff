@@ -11,6 +11,14 @@ type UnhandledEffectException(effect : obj) =
 /// 纯控制台输入耗尽。
 exception NoMoreInputException
 
+/// 处理剩余程序的续体（异步）。
+/// 'st:  State type maintained by the handler.
+/// 'stx: State type answered by the continuation, which may be
+///       different from the state managed by the handler (e.g. the
+///       combined state of multiple handlers).
+type HandlerCont<'ctx, 'ret, 'st, 'stx> =
+    'st -> Program<'ctx, 'ret> -> Async<List<'ret * 'stx>>
+
 /// Effect handler base class.
 /// 'ctx: Context type requirement satisfied by this handler.
 /// 'ret: Return type of program handled by this handler.
@@ -22,43 +30,56 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
     /// Handler's initial state.
     abstract member Start : 'st
 
-    /// Attempts to handle a single effect in a progam.
-    /// 'stx: State answered by the continuation, which may be
-    ///       different from the state managed by this handler.
+    /// Attempts to handle a single effect in a program.
+    /// Returns None if the effect is not handled by this handler.
+    /// 'cont' continues the program with the handler's new state.
     abstract member TryStep<'stx> :
         'st                                        // state before handling current effect
             * Effect<'ctx, 'ret>                   // effect to be handled
             * HandlerCont<'ctx, 'ret, 'st, 'stx>   // continuation that will handle the remainder of the program
-            -> Option<List<'ret * 'stx>>           // "Some" indicates the effect was handled
+            -> Option<Async<List<'ret * 'stx>>>    // "Some" indicates the effect was handled
 
     /// Transforms the handler's final state.
     abstract member Finish : 'st -> 'fin
 
-    /// Runs the given program, producing a list of results.
-    member this.RunMany(program) =
+    /// Effect 类型注册表（分派表用，open generic definition 或具体类型）。
+    abstract member HandledEffectTypes : Type list
+
+    /// Runs the given program asynchronously, producing a list of results.
+    member this.RunManyAsync(program) : Async<List<'ret * 'fin>> =
 
         /// Runs a single step in the program.
-        let rec loop state = function
-            | Effect effect ->
-                this.TryStep(state, effect, loop)
-                    |> Option.defaultWith (fun () ->
-                        raise (UnhandledEffectException(effect)))
-            | Pure ret ->
-                [ ret, state ]
-            | Delay f ->
-                loop state (f ())
-            | Await node ->
-                loop state (node.Continuation (node.Computation |> Async.RunSynchronously))
-            | Catch (comp, handler) ->
-                try loop state comp
-                with e -> loop state (handler e)
+        let rec loop (state : 'st) (program : Program<'ctx, 'ret>) : Async<List<'ret * 'st>> =
+            async {
+                match program with
+                    | Pure ret -> return [ ret, state ]
+                    | Effect effect ->
+                        match this.TryStep(state, effect, loop) with
+                            | Some computation -> return! computation
+                            | None -> return raise (UnhandledEffectException(effect))
+                    | Delay f -> return! loop state (f ())
+                    | Await node ->
+                        let! value = node.Computation
+                        return! loop state (node.Continuation value)
+                    | Catch (comp, handler) ->
+                        try return! loop state comp
+                        with e -> return! loop state (handler e)
+            }
 
-        loop this.Start program
-            |> List.map (fun (ret, state) ->
-                ret, this.Finish(state))
+        async {
+            let! results = loop this.Start program
+            return
+                results
+                |> List.map (fun (ret, state) ->
+                    ret, this.Finish(state))
+        }
+
+    /// Runs the given program, producing a list of results.
+    member this.RunMany(program) : List<'ret * 'fin> =
+        this.RunManyAsync(program) |> Async.RunSynchronously
 
     /// Runs the given program, producing a single result.
-    member this.Run(program) =
+    member this.Run(program) : 'ret * 'fin =
         match this.RunMany(program) with
             | [ pair ] -> pair
             | [] -> raise (InvalidOperationException("Program produced no results"))
@@ -66,12 +87,6 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
                 raise (InvalidOperationException(
                     sprintf "Program produced %d results; use RunMany for multi-shot programs"
                         results.Length))
-
-/// Continuation that handles the remainder of a program.
-and HandlerCont<'ctx, 'ret, 'st, 'stx> =
-    'st                          // state after handling current effect
-        -> Program<'ctx, 'ret>   // remainder of the program to handle
-        -> List<'ret * 'stx>     // output of handling the program
 
 /// Handler whose final state type is the same as its internal state type.
 [<AbstractClass>]
@@ -87,6 +102,7 @@ type NoopHandler<'ctx, 'ret, 'st, 'fin>(start : 'st, finish : 'st -> 'fin) =
     override _.Start = start
     override _.TryStep(state, effect, _) = None
     override _.Finish(state) = finish state
+    override _.HandledEffectTypes = []
 
 /// Combines two effect handlers using the given finish.
 type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
@@ -100,7 +116,7 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
 
     /// Attempts to handle a single effect by routing it first to one handler,
     /// and then to the other.
-    override _.TryStep<'stx>((state1, state2), effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep((state1, state2), effect, cont) =
         handler1.TryStep(state1, effect, fun state1' program ->
             cont (state1', state2) program)
             |> Option.orElseWith (fun () ->
@@ -110,6 +126,9 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
     /// Combines the given handlers' final states.
     override _.Finish((state1, state2)) =
         finish (handler1.Finish(state1), handler2.Finish(state2))
+
+    override _.HandledEffectTypes =
+        handler1.HandledEffectTypes @ handler2.HandledEffectTypes
 
 module Handler =
 

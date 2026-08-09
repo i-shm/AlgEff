@@ -16,3 +16,14 @@ type LogEnv<'ret>() as this =
     let handler = PureLogHandler(this)
     interface LogContext
     member _.Handler = handler
+
+/// State + Log 双 handler 环境。
+type StateLogEnv<'state, 'ret>(initial : 'state) as this =
+    inherit Environment<'ret>()
+    let handler =
+        Handler.combine2
+            (PureStateHandler(initial, this))
+            (PureLogHandler(this))
+    interface StateContext<'state>
+    interface LogContext
+    member _.Handler = handler

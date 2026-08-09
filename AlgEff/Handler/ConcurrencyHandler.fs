@@ -32,7 +32,7 @@ type PureConcurrencyHandler<'env when 'env :> ConcurrencyContext and 'env :> Env
     override _.Start = Queue.empty
 
     /// Manages program control.
-    override _.TryStep<'stx>(queue, effect, cont : HandlerCont<_, _, _, 'stx>) =
+    override _.TryStep(queue, effect, cont) =
 
         /// Runs the next queued program.
         let run queue =
@@ -51,3 +51,9 @@ type PureConcurrencyHandler<'env when 'env :> ConcurrencyContext and 'env :> Env
                         cont queue <| eff.Cont ()
                     else
                         run queue)
+
+    /// Handles Fork, Yield, and Exit effects.
+    override _.HandledEffectTypes =
+        [ typeof<ForkEffect<'env, Program<'env, unit>>>
+          typeof<YieldEffect<'env, Program<'env, unit>>>
+          typeof<ExitEffect<'env, Program<'env, unit>>> ]

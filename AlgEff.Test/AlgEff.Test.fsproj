@@ -18,6 +18,7 @@
     <Compile Include="GreetTest.fs" />
     <Compile Include="StateTest.fs" />
     <Compile Include="NonDetTest.fs" />
+    <Compile Include="AsyncTest.fs" />
     <Compile Include="ConcurrencyTest.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
