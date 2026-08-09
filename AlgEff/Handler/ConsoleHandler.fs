@@ -60,23 +60,23 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
 
 /// Actual console handler.
 type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Environment<'ret>>(env : 'env) =
-    inherit SimpleHandler<'env, 'ret, Unit>()
+    inherit SimpleHandler<'env, 'ret, NoState>()
 
     /// No internal state to maintain.
-    override _.Start = Unit
+    override _.Start = NoState
 
     /// Writes to or reads from the console.
-    override _.TryStep(Unit, effect, cont) =
+    override _.TryStep(NoState, effect, cont) =
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
             match consoleEff.Case with
                 | WriteLine eff ->
                     System.Console.WriteLine(eff.String)
                     let next = eff.Cont()
-                    cont Unit next
+                    cont NoState next
                 | ReadLine eff ->
                     let str = System.Console.ReadLine()
                     let next = eff.Cont(str)
-                    cont Unit next)
+                    cont NoState next)
 
     /// Handles WriteLine and ReadLine effects.
     override _.HandledEffectTypes =

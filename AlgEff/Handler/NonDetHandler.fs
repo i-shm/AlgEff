@@ -5,19 +5,19 @@ open AlgEff.Effect
 
 [<AbstractClass>]
 type NonDetHandler<'env, 'ret>() =
-    inherit SimpleHandler<'env, 'ret, Unit>()
+    inherit SimpleHandler<'env, 'ret, NoState>()
 
 /// Always picks the true choice.
 type PickTrue<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>>(env : 'env) =
     inherit NonDetHandler<'env, 'ret>()
 
-    override _.Start = Unit
+    override _.Start = NoState
 
-    override _.TryStep(Unit, effect, cont) =
+    override _.TryStep(NoState, effect, cont) =
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
-                    cont Unit (eff.Cont(true))
+                    cont NoState (eff.Cont(true))
                 | Fail _ -> async { return [] })
 
     override _.HandledEffectTypes =
@@ -28,15 +28,15 @@ type PickTrue<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret
 type PickMax<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret> and 'ret : comparison>(env : 'env) =
     inherit NonDetHandler<'env, 'ret>()
 
-    override _.Start = Unit
+    override _.Start = NoState
 
-    override _.TryStep(Unit, effect, cont) =
+    override _.TryStep(NoState, effect, cont) =
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
                     async {
-                        let! pairsTrue = cont Unit (eff.Cont(true))
-                        let! pairsFalse = cont Unit (eff.Cont(false))
+                        let! pairsTrue = cont NoState (eff.Cont(true))
+                        let! pairsFalse = cont NoState (eff.Cont(false))
                         let all = pairsTrue @ pairsFalse
                         return
                             match all with
@@ -53,15 +53,15 @@ type PickMax<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
 type PickAll<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>>(env : 'env) =
     inherit NonDetHandler<'env, 'ret>()
 
-    override _.Start = Unit
+    override _.Start = NoState
 
-    override _.TryStep(Unit, effect, cont) =
+    override _.TryStep(NoState, effect, cont) =
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
                     async {
-                        let! pairsTrue = cont Unit (eff.Cont(true))
-                        let! pairsFalse = cont Unit (eff.Cont(false))
+                        let! pairsTrue = cont NoState (eff.Cont(true))
+                        let! pairsFalse = cont NoState (eff.Cont(false))
                         return pairsTrue @ pairsFalse
                     }
                 | Fail _ -> async { return [] })

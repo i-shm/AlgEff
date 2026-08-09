@@ -117,3 +117,15 @@ type EffectCETest() =
         let result, finalState = StateEnv(0).Handler.Run(program)
         Assert.AreEqual(42, result)
         Assert.AreEqual(42, finalState)
+
+    [<TestMethod>]
+    member _.HandlerEnvironmentBaseClass() =
+        let env = StateEnvWithBase(0)
+        let program =
+            effect {
+                do! State.put 9
+                return! State.get
+            }
+        let result, state = env.Handler.Run(program)
+        Assert.AreEqual(9, result)
+        Assert.AreEqual(9, state)

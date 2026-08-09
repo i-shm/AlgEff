@@ -29,7 +29,7 @@ module Program =
 
     [<EntryPoint>]
     let main argv =
-        let name, (Unit, log) =
+        let name, (NoState, log) =
             ProgramEnv().Handler.Run(program)
         printfn "Log: %A" log
         printfn "Name: %s" name

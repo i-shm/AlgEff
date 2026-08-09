@@ -27,3 +27,9 @@ type StateLogEnv<'state, 'ret>(initial : 'state) as this =
     interface StateContext<'state>
     interface LogContext
     member _.Handler = handler
+
+/// 用 HandlerEnvironment 基类定义的环境（对比 StateEnv 的 as-this 样板）。
+type StateEnvWithBase<'state, 'ret>(initial : 'state) =
+    inherit HandlerEnvironment<StateEnvWithBase<'state, 'ret>, 'ret, 'state, 'state>()
+    override this.BuildHandler _ = PureStateHandler(initial, this)
+    interface StateContext<'state>

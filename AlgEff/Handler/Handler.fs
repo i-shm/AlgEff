@@ -202,6 +202,25 @@ module Handler =
 [<AbstractClass>]
 type Environment<'ret>() = class end
 
-/// Unit type replacement.
-/// https://stackoverflow.com/questions/47909938/passing-unit-as-type-parameter-to-generic-class-in-f
-type Unit = Unit
+/// State type for handlers that maintain no internal state.
+/// (Replaces the former single-case-union hack that shadowed unit as a
+/// type argument.)
+[<Struct>]
+type NoState = NoState
+
+/// Convenience environment base class: builds and caches the combined
+/// handler on first access. 'BuildHandler' is invoked on first access to
+/// Handler, so its override may safely reference `this`.
+[<AbstractClass>]
+type HandlerEnvironment<'env, 'ret, 'st, 'fin>() =
+    inherit Environment<'ret>()
+    let mutable handler : Handler<'env, 'ret, 'st, 'fin> option = None
+    abstract member BuildHandler :
+        HandlerEnvironment<'env, 'ret, 'st, 'fin> -> Handler<'env, 'ret, 'st, 'fin>
+    member this.Handler =
+        match handler with
+            | Some h -> h
+            | None ->
+                let h = this.BuildHandler this
+                handler <- Some h
+                h
