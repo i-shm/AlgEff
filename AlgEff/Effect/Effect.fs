@@ -91,9 +91,20 @@ type ProgramBuilder() =
     member this.TryWith(comp : Program<'ctx, 'a>, handler : exn -> Program<'ctx, 'a>) =
         Catch (comp, handler)
     member this.TryFinally(comp : Program<'ctx, 'a>, compensation : Program<'ctx, unit>) =
-        let withCompensation program =
-            program >>= (fun v -> compensation >>= (fun () -> this.Return v))
-        Catch (withCompensation comp, fun e -> compensation >>= (fun () -> raise e))
+        let compensationRan = ref false
+        let runCompensation () =
+            if compensationRan.Value then
+                this.Zero ()
+            else
+                compensationRan.Value <- true
+                compensation
+        let tryFinallyProgram =
+            let withCompensation program =
+                program >>= (fun v -> runCompensation () >>= (fun () -> this.Return v))
+            Catch (withCompensation comp, fun e -> runCompensation () >>= (fun () -> raise e))
+        Delay (fun () ->
+            compensationRan.Value <- false
+            tryFinallyProgram)
     member this.Using(resource : 'a when 'a :> System.IDisposable, body : 'a -> Program<'ctx, 'b>) =
         let dispose = Delay (fun () -> resource.Dispose (); this.Zero ())
         this.TryFinally (body resource, dispose)

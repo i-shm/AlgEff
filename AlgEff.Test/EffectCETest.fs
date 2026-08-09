@@ -34,6 +34,67 @@ type EffectCETest() =
         Assert.AreEqual(3, finalState)
 
     [<TestMethod>]
+    member _.TryFinallyCompensationThrowsRunsOnce() =
+        let runs = ref 0
+        let compensation =
+            effect {
+                runs := !runs + 1
+                do! (Delay (fun () -> raise (System.InvalidOperationException "boom")) : Program<_, unit>)
+            }
+        let comp = effect { return 1 }
+        Assert.Throws<InvalidOperationException>(fun () ->
+            ProgramBuilder().TryFinally(comp, compensation)
+            |> LogEnv().Handler.Run
+            |> ignore)
+        |> ignore
+        Assert.AreEqual(1, !runs)
+
+    [<TestMethod>]
+    member _.TryWithCatchesUnhandledEffect() =
+        let program =
+            effect {
+                try
+                    do! Log.write "x"
+                    return 0
+                with _ ->
+                    return 1
+            }
+        let result, _ = StateOnlyWithLogContextEnv(0).Handler.Run(program)
+        Assert.AreEqual(1, result)
+
+    [<TestMethod>]
+    member _.CatchStateIsTryEntryState() =
+        let program =
+            effect {
+                do! State.put 1
+                try
+                    do! State.put 2
+                    do! (Delay (fun () -> raise (System.InvalidOperationException "boom")) : Program<_, unit>)
+                    return 0
+                with _ ->
+                    return! State.get
+            }
+        let result, state = StateEnv(0).Handler.Run(program)
+        Assert.AreEqual(1, result)
+        Assert.AreEqual(1, state)
+
+    [<TestMethod>]
+    member _.AwaitInsideTryFinally() =
+        let comp =
+            effect {
+                let! x = async { return 42 }
+                do! State.put x
+            }
+        let compensation =
+            effect {
+                do! Log.write "cleanup"
+            }
+        let program = ProgramBuilder().TryFinally(comp, compensation)
+        let (), (state, log) = StateLogEnv(0).Handler.Run(program)
+        Assert.AreEqual(42, state)
+        Assert.AreEqual([ "cleanup" ], log)
+
+    [<TestMethod>]
     member _.TryWith() =
         let program =
             effect {

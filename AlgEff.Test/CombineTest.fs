@@ -62,6 +62,17 @@ type EverythingEnv<'ret>() as this =
     interface LogContext
     member _.Handler = handler
 
+/// 基类声明 handler 与 State handler 的组合（验证分派表的基类链回溯）。
+type EverythingStateEnv(initial : int) as this =
+    inherit Environment<int>()
+    let handler =
+        Handler.combine2
+            (EverythingHandler(this))
+            (PureStateHandler(initial, this))
+    interface LogContext
+    interface StateContext<int>
+    member _.Handler = handler
+
 [<TestClass>]
 type CombineTest() =
 
@@ -110,6 +121,19 @@ type CombineTest() =
         Assert.Throws<UnhandledEffectException>(fun () ->
             env.Handler.Run(program) |> ignore)
         |> ignore
+
+    [<TestMethod>]
+    member _.CombinedBaseChainRouting() =
+        let program =
+            effect {
+                do! Log.write "x"
+                do! State.put 42
+                return 1
+            }
+        let result, (handled, state) = EverythingStateEnv(0).Handler.Run(program)
+        Assert.AreEqual(1, result)
+        Assert.IsTrue(handled)
+        Assert.AreEqual(42, state)
 
     [<TestMethod>]
     member _.BaseTypeDeclarationMatches() =

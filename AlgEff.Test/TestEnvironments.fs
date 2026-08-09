@@ -28,6 +28,14 @@ type StateLogEnv<'state, 'ret>(initial : 'state) as this =
     interface LogContext
     member _.Handler = handler
 
+/// 声明 LogContext 但无 Log handler（制造"handler 缺失"场景）。
+type StateOnlyWithLogContextEnv<'state, 'ret>(initial : 'state) as this =
+    inherit Environment<'ret>()
+    let handler = PureStateHandler(initial, this)
+    interface StateContext<'state>
+    interface LogContext
+    member _.Handler = handler
+
 /// 用 HandlerEnvironment 基类定义的环境（对比 StateEnv 的 as-this 样板）。
 type StateEnvWithBase<'state, 'ret>(initial : 'state) =
     inherit HandlerEnvironment<StateEnvWithBase<'state, 'ret>, 'ret, 'state, 'state>()
