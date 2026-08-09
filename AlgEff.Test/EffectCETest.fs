@@ -58,14 +58,22 @@ type EffectCETest() =
 
     [<TestMethod>]
     member _.TryFinallyReraisesOnError() =
-        let builder = ProgramBuilder()
-        let program =
-            builder.TryFinally(
-                builder.Bind((Delay (fun () -> raise (InvalidOperationException "boom")) : Program<_, unit>), fun () -> builder.Zero()),
-                Log.write "cleanup")
+        let cleanupRan = ref 0
+        let compensation =
+            effect {
+                do! Log.write "cleanup"
+                cleanupRan := !cleanupRan + 1
+            }
+        let comp =
+            effect {
+                do! (Delay (fun () -> raise (InvalidOperationException "boom")) : Program<_, unit>)
+            }
         Assert.Throws<InvalidOperationException>(fun () ->
-            LogEnv().Handler.Run(program) |> ignore)
+            ProgramBuilder().TryFinally(comp, compensation)
+            |> LogEnv().Handler.Run
+            |> ignore)
         |> ignore
+        Assert.AreEqual(1, !cleanupRan)
 
     [<TestMethod>]
     member _.UsingDisposesOnSuccess() =
