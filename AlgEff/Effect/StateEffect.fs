@@ -51,8 +51,8 @@ module State =
 
     /// Sets the current state
     let put<'state, 'ctx when 'ctx :> StateContext<'state>> (value : 'state) : Program<'ctx, _> =
-        Free (PutEffect(value, Pure))
+        Program.Effect (PutEffect(value, Pure))
 
     /// Gets the current state
     let get<'state, 'ctx when 'ctx :> StateContext<'state>> : Program<'ctx, 'state> =
-        Free (GetEffect(Pure))
+        Program.Effect (GetEffect(Pure))

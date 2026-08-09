@@ -21,7 +21,7 @@ module Log =
 
     /// Logs the given string.
     let write<'ctx when 'ctx :> LogContext> str : Program<'ctx, _> =
-        Free (LogEffect(str, Pure))
+        Program.Effect (LogEffect(str, Pure))
 
     /// Formats and logs a string.
     let writef fmt = Printf.ksprintf write fmt

@@ -30,12 +30,19 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
 
         /// Runs a single step in the program.
         let rec loop state = function
-            | Free effect ->
+            | Effect effect ->
                 this.TryStep(state, effect, loop)
                     |> Option.defaultWith (fun () ->
                         failwithf "Unhandled effect: %A" effect)
             | Pure ret ->
                 [ ret, state ]
+            | Delay f ->
+                loop state (f ())
+            | Await node ->
+                loop state (node.Continuation (node.Computation |> Async.RunSynchronously))
+            | Catch (comp, handler) ->
+                try loop state comp
+                with e -> loop state (handler e)
 
         loop this.Start program
             |> List.map (fun (ret, state) ->

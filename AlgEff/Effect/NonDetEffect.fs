@@ -49,7 +49,7 @@ module NonDet =
 
     /// Generates a non-deterministic boolean.
     let decide<'ctx when 'ctx :> NonDetContext> : Program<'ctx, _> =
-        Free (DecideEffect(Pure))
+        Program.Effect (DecideEffect(Pure))
 
     /// Chooses between two values non-deterministically.
     let choose x y =
@@ -61,4 +61,4 @@ module NonDet =
 
     /// Triggers backtracking.
     let fail<'ctx when 'ctx :> NonDetContext> : Program<'ctx, _> =
-        Free (FailEffect(Pure))
+        Program.Effect (FailEffect(Pure))

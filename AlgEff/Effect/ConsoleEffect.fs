@@ -51,11 +51,11 @@ module Console =
 
     /// Writes the given line to the console.
     let writeln<'ctx when 'ctx :> ConsoleContext> str : Program<'ctx, _> =
-        Free (WriteLineEffect(str, Pure))
+        Program.Effect (WriteLineEffect(str, Pure))
 
     /// Formats and writes a line to the console.
     let writelnf fmt = Printf.ksprintf writeln fmt
 
     /// Reads a line from the console.
     let readln<'ctx when 'ctx :> ConsoleContext> : Program<'ctx, _> =
-        Free (ReadLineEffect(Pure))
+        Program.Effect (ReadLineEffect(Pure))

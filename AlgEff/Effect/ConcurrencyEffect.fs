@@ -67,12 +67,12 @@ module Concurrency =
 
     /// Forks the given program.
     let fork<'ctx when 'ctx :> ConcurrencyContext> (program : Program<'ctx, unit>) : Program<'ctx, _> =
-        Free (ForkEffect(program, Pure))
+        Program.Effect (ForkEffect(program, Pure))
 
     /// Yields control from the current program.
     let yld<'ctx when 'ctx :> ConcurrencyContext> : Program<'ctx, _> =
-        Free (YieldEffect<'ctx, _>(Pure))
+        Program.Effect (YieldEffect<'ctx, _>(Pure))
 
     /// Exits the current program.
     let exit<'ctx when 'ctx :> ConcurrencyContext> : Program<'ctx, _> =
-        Free (ExitEffect<'ctx, _>(Pure))
+        Program.Effect (ExitEffect<'ctx, _>(Pure))
