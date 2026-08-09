@@ -38,7 +38,7 @@ type ErrorTest() =
         let ex =
             Assert.Throws<UnhandledEffectException>(fun () ->
                 EmptyEnv().Handler.Run(program) |> ignore)
-        Assert.IsTrue(ex.Message.Contains("Log"))
+        Assert.IsTrue(ex.Message.Contains("Log(x)"))
         Assert.IsTrue(ex.Message.Contains("Unhandled effect"))
 
     [<TestMethod>]
@@ -62,7 +62,7 @@ type ErrorTest() =
                 let! _ = Console.readln
                 return ()
             }
-        let env = ConsoleOnlyEnv([])
+        let env = ConsoleOnlyEnv([""])
         Assert.Throws<NoMoreInputException>(fun () ->
             env.Handler.Run(program) |> ignore)
         |> ignore

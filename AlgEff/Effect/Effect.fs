@@ -13,6 +13,8 @@ type Effect<'next>() =
     abstract member Name : string
     default this.Name = this.GetType().Name
 
+    override this.ToString() = this.Name
+
 /// 异步挂起点（存在类型包装：F# 抽象成员不能带自有类型参数）。
 type AwaitNode<'ctx, 'ret>(computation : Async<obj>, continuation : obj -> Program<'ctx, 'ret>) =
 
