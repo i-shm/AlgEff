@@ -46,7 +46,7 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
                                 PureConsole.create tail output
                             let next = eff.Cont(head)
                             cont state' next
-                        | _ -> failwith "No more input")
+                        | _ -> raise NoMoreInputException)
 
     /// Puts console output in chronological order.
     override _.Finish(state) =

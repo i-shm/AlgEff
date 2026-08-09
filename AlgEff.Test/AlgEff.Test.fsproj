@@ -12,6 +12,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="ErrorTest.fs" />
     <Compile Include="GreetTest.fs" />
     <Compile Include="StateTest.fs" />
     <Compile Include="NonDetTest.fs" />

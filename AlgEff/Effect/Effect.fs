@@ -10,7 +10,8 @@ type Effect<'next>() =
     abstract member Map : ('next -> 'b) -> Effect<'b>
 
     /// Effect 的可读名称（错误信息用）。
-    member this.Name = this.GetType().Name
+    abstract member Name : string
+    default this.Name = this.GetType().Name
 
 /// 异步挂起点（存在类型包装：F# 抽象成员不能带自有类型参数）。
 type AwaitNode<'ctx, 'ret>(computation : Async<obj>, continuation : obj -> Program<'ctx, 'ret>) =

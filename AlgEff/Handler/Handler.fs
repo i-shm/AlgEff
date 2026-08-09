@@ -1,6 +1,15 @@
 ﻿namespace AlgEff.Handler
 
+open System
 open AlgEff.Effect
+
+/// 未处理效应异常。
+type UnhandledEffectException(effect : obj) =
+    inherit System.Exception(sprintf "Unhandled effect %O" effect)
+    member _.Effect = effect
+
+/// 纯控制台输入耗尽。
+exception NoMoreInputException
 
 /// Effect handler base class.
 /// 'ctx: Context type requirement satisfied by this handler.
@@ -33,7 +42,7 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
             | Effect effect ->
                 this.TryStep(state, effect, loop)
                     |> Option.defaultWith (fun () ->
-                        failwithf "Unhandled effect: %A" effect)
+                        raise (UnhandledEffectException(effect)))
             | Pure ret ->
                 [ ret, state ]
             | Delay f ->
@@ -50,7 +59,13 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
 
     /// Runs the given program, producing a single result.
     member this.Run(program) =
-        program |> this.RunMany |> List.exactlyOne
+        match this.RunMany(program) with
+            | [ pair ] -> pair
+            | [] -> raise (InvalidOperationException("Program produced no results"))
+            | results ->
+                raise (InvalidOperationException(
+                    sprintf "Program produced %d results; use RunMany for multi-shot programs"
+                        results.Length))
 
 /// Continuation that handles the remainder of a program.
 and HandlerCont<'ctx, 'ret, 'st, 'stx> =
@@ -65,6 +80,13 @@ type SimpleHandler<'ctx, 'ret, 'st>() =
 
     /// No-op final transformation.
     default _.Finish(state) = state
+
+/// 无任何 handler 的环境处理器（运行任何程序都会得到未处理效应）。
+type NoopHandler<'ctx, 'ret, 'st, 'fin>(start : 'st, finish : 'st -> 'fin) =
+    inherit Handler<'ctx, 'ret, 'st, 'fin>()
+    override _.Start = start
+    override _.TryStep(state, effect, _) = None
+    override _.Finish(state) = finish state
 
 /// Combines two effect handlers using the given finish.
 type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
@@ -90,6 +112,10 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
         finish (handler1.Finish(state1), handler2.Finish(state2))
 
 module Handler =
+
+    /// 无 handler 的处理器（用于测试未处理效应路径）。
+    let noopHandler<'ctx, 'ret> : Handler<'ctx, 'ret, unit, unit> =
+        NoopHandler((), id) :> _
 
     /// Adapts a step function for use in an effect handler.
     let tryStep<'eff, 'next, 'ret when 'eff :> Effect<'next>>
