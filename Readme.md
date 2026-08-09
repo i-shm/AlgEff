@@ -100,6 +100,9 @@ type Env() =
 
 - `try` 块捕获异常时，handler 状态 = try 块入口处的状态（纯函数线程化状态在异常展开时丢失）
 - `RunManyAsync` 为统一实现；`Run`/`RunMany` 是对其 `Async.RunSynchronously` 的封装
+- 未处理效应以 `UnhandledEffectException`（携带 effect 对象）从运行循环抛出，可被程序内 `try/with` 捕获——这也保证 `try/finally` 的补偿在未处理效应时仍会执行
+- 多结果程序（如 `pickAll`）中绑定的 Async 计算按分支重新执行
+- 同时存在两个 `StateContext` 时需显式类型标注（`State.put<int, Env>`）
 
 ## Creating a runtime environment
 
