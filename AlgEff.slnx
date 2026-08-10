@@ -1,0 +1,15 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path="Icon.png" />
+    <File Path="License" />
+    <File Path="Readme.md" />
+  </Folder>
+  <Project Path="AlgEff.Bench/AlgEff.Bench.fsproj" />
+  <Project Path="AlgEff.Test/AlgEff.Test.fsproj" />
+  <Project Path="AlgEff/AlgEff.fsproj" />
+</Solution>

@@ -35,10 +35,10 @@ jobs:
             10.0.x
 
       - name: Restore
-        run: dotnet restore AlgEff.sln
+        run: dotnet restore AlgEff.slnx
 
       - name: Build
-        run: dotnet build AlgEff.sln --configuration Release --framework ${{ matrix.framework }} --no-restore
+        run: dotnet build AlgEff.slnx --configuration Release --framework ${{ matrix.framework }} --no-restore
 
       - name: Test
         run: dotnet test AlgEff.Test/AlgEff.Test.fsproj --configuration Release --framework ${{ matrix.framework }} --no-build --logger "console;verbosity=minimal"
@@ -57,7 +57,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore AlgEff.sln
+        run: dotnet restore AlgEff.slnx
 
       - name: Pack
         run: dotnet pack AlgEff/AlgEff.fsproj --configuration Release --no-restore --output artifacts/packages
