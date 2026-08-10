@@ -34,3 +34,22 @@ type StateTest() =
             PureStateEnv(1).Handler.Run(program)
         Assert.AreEqual<string>("4", result)
         Assert.AreEqual<int>(4, state)
+
+    [<TestMethod>]
+    member _.RunManyHandlesLongLinearPrograms() =
+
+        let rec loop n =
+            effect {
+                if n = 0 then
+                    return! State.get<int, PureStateEnv<int, int>>
+                else
+                    do! State.put<int, PureStateEnv<int, int>> n
+                    return! loop (n - 1)
+            }
+
+        let result, state =
+            PureStateEnv<int, int>(0).Handler.RunMany(loop 100000)
+            |> List.exactlyOne
+
+        Assert.AreEqual<int>(1, result)
+        Assert.AreEqual<int>(1, state)

@@ -51,6 +51,13 @@ let countdown n =
             do! Log.writef "%d" i
     }
 
+// while! with an effectful condition
+let pollUntilDone isDoneAsync =
+    effect {
+        while! async { return not (isDoneAsync ()) } do
+            do! Log.write "waiting"
+    }
+
 // try / finally / use
 let withResource r =
     effect {
@@ -58,7 +65,7 @@ let withResource r =
         try
             do! State.put 42
         finally
-            do! Log.write "done"
+            r.Flush()
     }
 ```
 
@@ -99,7 +106,7 @@ type Env() =
 ### Semantics
 
 - When a `try` block catches an exception, the handler state is the state at the entry to the `try` block (pure-functional state threading is lost on exception unwinding)
-- `RunManyAsync` is the unified implementation; `Run` and `RunMany` are thin `Async.RunSynchronously` wrappers around it
+- `Run` and `RunMany` use synchronous fast paths for pure/synchronous handlers, while preserving the same scoped `try/with`, `try/finally`, branch abort, and async fallback semantics as `RunManyAsync`
 - An unhandled effect is raised by the run loop as an `UnhandledEffectException` (carrying the effect object), so it can be caught by a program's own `try/with` -- this also guarantees that `try/finally` compensation still runs when an effect is unhandled
 - Async computations bound inside multi-shot programs (e.g. `pickAll`) re-execute once per branch
 - With two `StateContext` implementations in scope, explicit type annotations are required (e.g. `State.put<int, Env>`)

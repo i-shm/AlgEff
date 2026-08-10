@@ -135,11 +135,17 @@ type FinallyEffect<'ctx, 'a, 'next>(body : Program<'ctx, 'a>, compensation : uni
 /// Program builder.
 type ProgramBuilder() =
     let (>>=) program f = Program.bind f program
+    let returnFrom value =
+        match value with
+            | Delay thunk -> thunk ()
+            | _ -> value
+
     member this.Bind(program, f) = program >>= f
     member this.Bind(computation : Async<'a>, f : 'a -> Program<'ctx, 'b>) =
         Await (AwaitImpl (computation, f))
     member this.Return(value) = Pure value
-    member _.ReturnFrom(value) = value
+    member _.ReturnFrom(value) = returnFrom value
+    member _.ReturnFromFinal(value) = returnFrom value
     member this.Zero() = Pure ()
     member this.Combine(program1, program2) = program1 >>= (fun () -> program2)
     member _.Delay(f : unit -> Program<'ctx, 'a>) = Delay f

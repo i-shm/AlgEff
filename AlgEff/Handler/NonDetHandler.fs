@@ -20,6 +20,30 @@ type PickTrue<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret
                     cont.Continue NoState (eff.Cont(true))
                 | Fail _ -> cont.Abort NoState)
 
+    override _.TryStepSync(NoState, effect, cont) =
+        Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
+            match nonDetEff.Case with
+                | Decide eff ->
+                    cont.Continue NoState (eff.Cont(true))
+                | Fail _ -> cont.Abort NoState)
+
+    override _.TryStepManySync(NoState, effect, cont) =
+        match effect with
+            | :? NonDetEffect<Program<'env, 'retx>> as nonDetEff ->
+                match nonDetEff.Case with
+                    | Decide eff ->
+                        cont.ContinueTail NoState (eff.Cont(true))
+                    | Fail _ -> cont.Abort NoState |> ManyCompleted
+                |> Some
+            | _ -> None
+
+    override _.TryStepOneSync(NoState, effect, cont) =
+        Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
+            match nonDetEff.Case with
+                | Decide eff ->
+                    cont.Continue NoState (eff.Cont(true))
+                | Fail _ -> cont.Abort NoState)
+
     override _.HandledEffectTypes =
         [ typeof<DecideEffect<Program<'env, 'ret>>>
           typeof<FailEffect<Program<'env, 'ret>>> ]
@@ -64,6 +88,64 @@ type PickMax<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
                     }
                 | Fail _ -> cont.Abort NoState)
 
+    override _.TryStepSync(NoState, effect, cont) =
+        Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
+            match nonDetEff.Case with
+                | Decide eff ->
+                    let pairsTrue = cont.Continue NoState (eff.Cont(true))
+                    let pairsFalse = cont.Continue NoState (eff.Cont(false))
+                    let all = pairsTrue @ pairsFalse
+                    let completed =
+                        all
+                        |> List.choose (function
+                            | Completed(ret, state) -> Some(ret, state)
+                            | _ -> None)
+                    let rest =
+                        all
+                        |> List.choose (function
+                            | Completed _ -> None
+                            | Raised error -> Some(Raised error)
+                            | Aborted state -> Some(Aborted state))
+                    match completed with
+                        | [] -> rest
+                        | _ ->
+                            let ret, state =
+                                completed.Tail
+                                |> List.fold
+                                    (fun best item ->
+                                        let itemValue = box (fst item) :?> IComparable
+                                        if itemValue.CompareTo(box (fst best)) > 0 then item else best)
+                                    completed.Head
+                            rest @ [ Completed(ret, state) ]
+                | Fail _ -> cont.Abort NoState)
+
+    override _.TryStepManySync(NoState, effect, cont) =
+        match effect with
+            | :? NonDetEffect<Program<'env, 'retx>> as nonDetEff ->
+                match nonDetEff.Case with
+                    | Decide eff ->
+                        let pairsTrue = cont.Continue NoState (eff.Cont(true))
+                        let pairsFalse = cont.Continue NoState (eff.Cont(false))
+                        let all = pairsTrue @ pairsFalse
+                        match all with
+                            | [] -> []
+                            | head :: tail ->
+                                let ret, state =
+                                    tail
+                                    |> List.fold
+                                        (fun best item ->
+                                            let itemValue = box (fst item) :?> IComparable
+                                            if itemValue.CompareTo(box (fst best)) > 0 then item else best)
+                                        head
+                                [ ret, state ]
+                    | Fail _ -> cont.Abort NoState
+                |> ManyCompleted
+                |> Some
+            | _ -> None
+
+    override _.TryStepOneSync(NoState, effect, cont) =
+        None
+
     override _.HandledEffectTypes =
         [ typeof<DecideEffect<Program<'env, 'ret>>>
           typeof<FailEffect<Program<'env, 'ret>>> ]
@@ -84,6 +166,31 @@ type PickAll<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
                         return pairsTrue @ pairsFalse
                     }
                 | Fail _ -> cont.Abort NoState)
+
+    override _.TryStepSync(NoState, effect, cont) =
+        Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
+            match nonDetEff.Case with
+                | Decide eff ->
+                    let pairsTrue = cont.Continue NoState (eff.Cont(true))
+                    let pairsFalse = cont.Continue NoState (eff.Cont(false))
+                    pairsTrue @ pairsFalse
+                | Fail _ -> cont.Abort NoState)
+
+    override _.TryStepManySync(NoState, effect, cont) =
+        match effect with
+            | :? NonDetEffect<Program<'env, 'retx>> as nonDetEff ->
+                match nonDetEff.Case with
+                    | Decide eff ->
+                        let pairsTrue = cont.Continue NoState (eff.Cont(true))
+                        let pairsFalse = cont.Continue NoState (eff.Cont(false))
+                        pairsTrue @ pairsFalse
+                    | Fail _ -> cont.Abort NoState
+                |> ManyCompleted
+                |> Some
+            | _ -> None
+
+    override _.TryStepOneSync(NoState, effect, cont) =
+        None
 
     override _.HandledEffectTypes =
         [ typeof<DecideEffect<Program<'env, 'ret>>>

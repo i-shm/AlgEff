@@ -58,6 +58,19 @@ type AsyncTest() =
         Assert.AreEqual(2, !counter)
 
     [<TestMethod>]
+    member _.WhileBangAwaitsCondition() =
+        let counter = ref 0
+        let program =
+            effect {
+                while! async { return !counter < 3 } do
+                    do! State.put !counter
+                    counter := !counter + 1
+            }
+        let (), finalState = StateEnv(0).Handler.Run(program)
+        Assert.AreEqual(2, finalState)
+        Assert.AreEqual(3, !counter)
+
+    [<TestMethod>]
     member _.AwaitInsideNonDet() =
         let program =
             effect {

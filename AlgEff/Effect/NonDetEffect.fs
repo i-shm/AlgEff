@@ -52,12 +52,9 @@ module NonDet =
         Program.Effect (DecideEffect(Pure))
 
     /// Chooses between two values non-deterministically.
-    let choose x y =
-        effect {
-            let! flag = decide
-            return
-                if flag then x else y
-        }
+    let choose<'ctx, 'a when 'ctx :> NonDetContext> (x : 'a) (y : 'a) : Program<'ctx, 'a> =
+        Program.Effect (DecideEffect(fun flag ->
+            Pure (if flag then x else y)))
 
     /// Triggers backtracking.
     let fail<'ctx when 'ctx :> NonDetContext> : Program<'ctx, _> =

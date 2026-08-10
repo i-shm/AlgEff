@@ -1,5 +1,6 @@
 ﻿namespace AlgEff.Handler
 
+open System
 open AlgEff.Effect
 
 /// https://stackoverflow.com/questions/33464319/implement-a-queue-type-in-f
@@ -59,6 +60,60 @@ type PureConcurrencyHandler<'env when 'env :> ConcurrencyContext and 'env :> Env
                                     return aborted @ next
                                 }
                 Some(box computation :?> Async<List<HandlerOutcome<'retx, 'stx>>>)
+            | _ -> None
+
+    override _.TryStepSync(queue, effect, cont) =
+        match box effect with
+            | :? ConcurrencyEffect<'env, Program<'env, unit>> as concurrencyEff ->
+                let contUnit =
+                    box cont :?> SyncHandlerCont<'env, unit, Queue<unit -> Program<'env, unit>>, 'stx>
+
+                let run queue =
+                    let getProgram, queue' = queue |> Queue.dequeue
+                    contUnit.Continue queue' <| getProgram ()
+
+                let results =
+                    match concurrencyEff.Case with
+                        | Fork eff ->
+                            let queue' = queue |> Queue.enqueue eff.Cont
+                            contUnit.Continue queue' eff.Program
+                        | Yield eff ->
+                            queue |> Queue.enqueue eff.Cont |> run
+                        | Exit eff ->
+                            if queue |> Queue.isEmpty then
+                                contUnit.Continue queue <| eff.Cont ()
+                            else
+                                contUnit.Abort queue @ run queue
+                Some(box results :?> List<HandlerOutcome<'retx, 'stx>>)
+            | _ -> None
+
+    override _.TryStepOneSync(queue, effect, cont) =
+        match box effect with
+            | :? ConcurrencyEffect<'env, Program<'env, unit>> as concurrencyEff ->
+                let contUnit =
+                    box cont :?> SingleHandlerCont<'env, unit, Queue<unit -> Program<'env, unit>>, 'stx>
+
+                let run queue =
+                    let getProgram, queue' = queue |> Queue.dequeue
+                    contUnit.Continue queue' <| getProgram ()
+
+                let result =
+                    match concurrencyEff.Case with
+                        | Fork eff ->
+                            let queue' = queue |> Queue.enqueue eff.Cont
+                            contUnit.Continue queue' eff.Program
+                        | Yield eff ->
+                            queue |> Queue.enqueue eff.Cont |> run
+                        | Exit eff ->
+                            if queue |> Queue.isEmpty then
+                                contUnit.Continue queue <| eff.Cont ()
+                            else
+                                match contUnit.Abort queue with
+                                    | RunRaised error -> RunRaised error
+                                    | ContinueWith _ ->
+                                        RunRaised (InvalidOperationException("Internal error: unresolved continuation in concurrency abort"))
+                                    | _ -> run queue
+                Some(box result :?> HandlerRunResult<'env, 'retx, 'stx>)
             | _ -> None
 
     /// Handles Fork, Yield, and Exit effects.
