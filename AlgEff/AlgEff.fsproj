@@ -24,7 +24,10 @@
     <Compile Include="Effect\StateEffect.fs" />
     <Compile Include="Effect\NonDetEffect.fs" />
     <Compile Include="Effect\ConcurrencyEffect.fs" />
+    <Compile Include="Handler\HandlerTypes.fs" />
     <Compile Include="Handler\Handler.fs" />
+    <Compile Include="Handler\HandlerComposition.fs" />
+    <Compile Include="Handler\HandlerEnvironment.fs" />
     <Compile Include="Handler\LogHandler.fs" />
     <Compile Include="Handler\ConsoleHandler.fs" />
     <Compile Include="Handler\StateHandler.fs" />
