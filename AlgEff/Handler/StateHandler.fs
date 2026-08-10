@@ -17,10 +17,10 @@ type PureStateHandler<'state, 'env, 'ret when 'env :> StateContext<'state> and '
                 | Put eff ->
                     let state' = eff.Value
                     let next = eff.Cont()
-                    cont state' next
+                    cont.Continue state' next
                 | Get eff ->
                     let next = eff.Cont(state)
-                    cont state next)
+                    cont.Continue state next)
 
     /// Handles Put and Get effects.
     override _.HandledEffectTypes =

@@ -168,3 +168,57 @@ type NonDetTest() =
             |> List.map fst
         Assert.AreEqual([ 11; 21; 12; 22 ], all)
         Assert.AreEqual([ List.max all ], max)
+
+    [<TestMethod>]
+    member _.TryWithPreservesSuccessfulPickAllBranches() =
+        let program =
+            effect {
+                try
+                    let! x = NonDet.choose 1 2
+                    if x = 1 then
+                        do! (Delay (fun () -> raise (System.InvalidOperationException "boom")) : Program<_, unit>)
+                    return x
+                with _ ->
+                    return 0
+            }
+        let results =
+            program
+            |> NonDetLogEnv(NonDetHandler.pickAll).Handler.RunMany
+            |> List.map fst
+        Assert.AreEqual([ 0; 2 ], results)
+
+    [<TestMethod>]
+    member _.UsingDisposesWhenBranchFails() =
+        let disposed = ref 0
+        let resource =
+            { new System.IDisposable with
+                member _.Dispose() = disposed := !disposed + 1 }
+        let program =
+            effect {
+                use _ = resource
+                do! NonDet.fail
+                return 1
+            }
+        let results =
+            program
+            |> NonDetLogEnv(NonDetHandler.pickAll).Handler.RunMany
+        Assert.AreEqual([], results)
+        Assert.AreEqual(1, !disposed)
+
+    [<TestMethod>]
+    member _.UsingDisposesEachPickAllBranch() =
+        let disposed = System.Collections.Generic.List<int>()
+        let program =
+            effect {
+                let! x = NonDet.choose 1 2
+                use _ =
+                    { new System.IDisposable with
+                        member _.Dispose() = disposed.Add x }
+                return x
+            }
+        let results =
+            program
+            |> NonDetLogEnv(NonDetHandler.pickAll).Handler.RunMany
+            |> List.map fst
+        Assert.AreEqual([ 1; 2 ], results)
+        CollectionAssert.AreEqual([| 1; 2 |], disposed.ToArray())

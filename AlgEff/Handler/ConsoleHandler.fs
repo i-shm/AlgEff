@@ -38,7 +38,7 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
                     let state' =
                         { state with Output = eff.String :: state.Output }
                     let next = eff.Cont()
-                    cont state' next
+                    cont.Continue state' next
                 | ReadLine eff ->
                     match state.Input with
                         | head :: tail ->
@@ -46,7 +46,7 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
                                 let output = head :: state.Output
                                 PureConsole.create tail output
                             let next = eff.Cont(head)
-                            cont state' next
+                            cont.Continue state' next
                         | _ -> raise NoMoreInputException)
 
     /// Puts console output in chronological order.
@@ -72,11 +72,11 @@ type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Env
                 | WriteLine eff ->
                     System.Console.WriteLine(eff.String)
                     let next = eff.Cont()
-                    cont NoState next
+                    cont.Continue NoState next
                 | ReadLine eff ->
                     let str = System.Console.ReadLine()
                     let next = eff.Cont(str)
-                    cont NoState next)
+                    cont.Continue NoState next)
 
     /// Handles WriteLine and ReadLine effects.
     override _.HandledEffectTypes =

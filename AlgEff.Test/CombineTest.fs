@@ -52,7 +52,7 @@ type EverythingHandler<'env, 'ret>(env : 'env) =
     override _.TryStep(state, effect, cont) =
         Handler.tryStep effect (fun (logEff : LogEffect<_>) ->
             let next = logEff.Cont()
-            cont true next)
+            cont.Continue true next)
     override _.HandledEffectTypes =
         [ typeof<Effect<Program<'env, 'ret>>> ]
 

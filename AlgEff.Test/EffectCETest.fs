@@ -36,15 +36,15 @@ type EffectCETest() =
     [<TestMethod>]
     member _.TryFinallyCompensationThrowsRunsOnce() =
         let runs = ref 0
-        let compensation =
-            effect {
-                runs := !runs + 1
-                do! (Delay (fun () -> raise (System.InvalidOperationException "boom")) : Program<_, unit>)
-            }
-        let comp = effect { return 1 }
         Assert.Throws<InvalidOperationException>(fun () ->
-            ProgramBuilder().TryFinally(comp, compensation)
-            |> LogEnv().Handler.Run
+            effect {
+                try
+                    return 1
+                finally
+                    runs := !runs + 1
+                    raise (System.InvalidOperationException "boom")
+            }
+            |> StateEnv(0).Handler.Run
             |> ignore)
         |> ignore
         Assert.AreEqual(1, !runs)
@@ -80,19 +80,18 @@ type EffectCETest() =
 
     [<TestMethod>]
     member _.AwaitInsideTryFinally() =
-        let comp =
+        let cleanupRan = ref 0
+        let program =
             effect {
-                let! x = async { return 42 }
-                do! State.put x
+                try
+                    let! x = async { return 42 }
+                    do! State.put x
+                finally
+                    cleanupRan := !cleanupRan + 1
             }
-        let compensation =
-            effect {
-                do! Log.write "cleanup"
-            }
-        let program = ProgramBuilder().TryFinally(comp, compensation)
-        let (), (state, log) = StateLogEnv(0).Handler.Run(program)
+        let (), state = StateEnv(0).Handler.Run(program)
         Assert.AreEqual(42, state)
-        Assert.AreEqual([ "cleanup" ], log)
+        Assert.AreEqual(1, !cleanupRan)
 
     [<TestMethod>]
     member _.TryWith() =
@@ -109,29 +108,30 @@ type EffectCETest() =
 
     [<TestMethod>]
     member _.TryFinallyRunsCleanupOnSuccess() =
-        let builder = ProgramBuilder()
+        let cleanupRan = ref 0
         let program =
-            builder.TryFinally(
-                builder.Bind(Log.write "try", fun () -> builder.Zero()),
-                Log.write "finally")
+            effect {
+                try
+                    do! Log.write "try"
+                finally
+                    cleanupRan := !cleanupRan + 1
+            }
         let (), log = LogEnv().Handler.Run(program)
-        Assert.AreEqual([ "try"; "finally" ], log)
+        Assert.AreEqual([ "try" ], log)
+        Assert.AreEqual(1, !cleanupRan)
 
     [<TestMethod>]
     member _.TryFinallyReraisesOnError() =
         let cleanupRan = ref 0
-        let compensation =
+        let program =
             effect {
-                do! Log.write "cleanup"
-                cleanupRan := !cleanupRan + 1
-            }
-        let comp =
-            effect {
-                do! (Delay (fun () -> raise (InvalidOperationException "boom")) : Program<_, unit>)
+                try
+                    do! (Delay (fun () -> raise (InvalidOperationException "boom")) : Program<_, unit>)
+                finally
+                    cleanupRan := !cleanupRan + 1
             }
         Assert.Throws<InvalidOperationException>(fun () ->
-            ProgramBuilder().TryFinally(comp, compensation)
-            |> LogEnv().Handler.Run
+            StateEnv(0).Handler.Run(program)
             |> ignore)
         |> ignore
         Assert.AreEqual(1, !cleanupRan)
@@ -166,6 +166,52 @@ type EffectCETest() =
             StateEnv(0).Handler.Run(program) |> ignore)
         |> ignore
         Assert.AreEqual(1, !disposed)
+
+    [<TestMethod>]
+    member _.UsingDisposesWhenBodyThrowsBeforeFirstEffect() =
+        let disposed = ref 0
+        let resource =
+            { new System.IDisposable with
+                member _.Dispose() = disposed := !disposed + 1 }
+        let program =
+            effect {
+                use _ = resource
+                do raise (System.InvalidOperationException "boom")
+                return ()
+            }
+        Assert.Throws<InvalidOperationException>(fun () ->
+            StateEnv(0).Handler.Run(program) |> ignore)
+        |> ignore
+        Assert.AreEqual(1, !disposed)
+
+    [<TestMethod>]
+    member _.UsingAllowsNullResource() =
+        let program =
+            effect {
+                use _ = (null : System.IDisposable)
+                return 1
+            }
+        let result, _ = StateEnv(0).Handler.Run(program)
+        Assert.AreEqual(1, result)
+
+    [<TestMethod>]
+    member _.TryWithDoesNotCatchFollowingContinuation() =
+        let attempts = ref 0
+        let program =
+            effect {
+                try
+                    do! State.put 1
+                with _ ->
+                    do! State.put 2
+
+                attempts := !attempts + 1
+                do! (Delay (fun () -> raise (System.InvalidOperationException "boom")) : Program<_, unit>)
+                return 3
+            }
+        Assert.Throws<InvalidOperationException>(fun () ->
+            StateEnv(0).Handler.Run(program) |> ignore)
+        |> ignore
+        Assert.AreEqual(1, !attempts)
 
     [<TestMethod>]
     member _.AsyncBind() =

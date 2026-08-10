@@ -11,13 +11,28 @@ type UnhandledEffectException(effect : obj) =
 /// Console input exhausted.
 exception NoMoreInputException
 
+/// A single branch produced by the run loop.
+type HandlerOutcome<'ret, 'st> =
+    | Completed of 'ret * 'st
+    | Raised of exn
+    | Aborted of 'st
+
+type private ProgramRunner<'ctx, 'st> =
+    abstract member Run<'ret> : 'st * Program<'ctx, 'ret> -> Async<List<HandlerOutcome<'ret, 'st>>>
+
 /// Continuation that handles the remainder of the program (async).
 /// 'st:  State type maintained by the handler.
 /// 'stx: State type answered by the continuation, which may be
 ///       different from the state managed by the handler (e.g. the
 ///       combined state of multiple handlers).
 type HandlerCont<'ctx, 'ret, 'st, 'stx> =
-    'st -> Program<'ctx, 'ret> -> Async<List<'ret * 'stx>>
+    {
+        /// Continues the current branch with a program.
+        Continue : 'st -> Program<'ctx, 'ret> -> Async<List<HandlerOutcome<'ret, 'stx>>>
+
+        /// Aborts the current branch while still unwinding dynamic scopes.
+        Abort : 'st -> Async<List<HandlerOutcome<'ret, 'stx>>>
+    }
 
 /// Effect handler base class.
 /// 'ctx: Context type requirement satisfied by this handler.
@@ -33,11 +48,11 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
     /// Attempts to handle a single effect in a program.
     /// Returns None if the effect is not handled by this handler.
     /// 'cont' continues the program with the handler's new state.
-    abstract member TryStep<'stx> :
+    abstract member TryStep<'retx, 'stx> :
         'st                                        // state before handling current effect
-            * Effect<'ctx, 'ret>                   // effect to be handled
-            * HandlerCont<'ctx, 'ret, 'st, 'stx>   // continuation that will handle the remainder of the program
-            -> Option<Async<List<'ret * 'stx>>>    // "Some" indicates the effect was handled
+            * Effect<'ctx, 'retx>                  // effect to be handled
+            * HandlerCont<'ctx, 'retx, 'st, 'stx>  // continuation that will handle the remainder of the program
+            -> Option<Async<List<HandlerOutcome<'retx, 'stx>>>>    // "Some" indicates the effect was handled
 
     /// Transforms the handler's final state.
     abstract member Finish : 'st -> 'fin
@@ -48,30 +63,111 @@ type Handler<'ctx, 'ret, 'st, 'fin>() =
     /// Runs the given program asynchronously, producing a list of results.
     member this.RunManyAsync(program) : Async<List<'ret * 'fin>> =
 
-        /// Runs a single step in the program.
-        let rec loop (state : 'st) (program : Program<'ctx, 'ret>) : Async<List<'ret * 'st>> =
-            async {
-                match program with
-                    | Pure ret -> return [ ret, state ]
-                    | Effect effect ->
-                        match this.TryStep(state, effect, loop) with
-                            | Some computation -> return! computation
-                            | None -> return raise (UnhandledEffectException(effect))
-                    | Delay f -> return! loop state (f ())
-                    | Await node ->
-                        let! value = node.Computation
-                        return! loop state (node.Continuation value)
-                    | Catch (comp, handler) ->
-                        try return! loop state comp
-                        with e -> return! loop state (handler e)
+        let runCompensation compensation =
+            try
+                compensation ()
+                None
+            with e ->
+                Some e
+
+        let runner =
+            { new ProgramRunner<'ctx, 'st> with
+                member runner.Run(state : 'st, program : Program<'ctx, 'retx>) : Async<List<HandlerOutcome<'retx, 'st>>> =
+                    let continueObject (state : 'st) (next : obj) : Async<List<HandlerOutcome<'retx, 'st>>> =
+                        runner.Run(state, next :?> Program<'ctx, 'retx>)
+
+                    let runCatch (entryState : 'st) (catchEffect : ICatchEffect<'ctx>) : Async<List<HandlerOutcome<'retx, 'st>>> =
+                        async {
+                            let! bodyResults = runner.Run(entryState, catchEffect.BodyObject)
+                            let mutable acc : List<HandlerOutcome<'retx, 'st>> = []
+                            for outcome in bodyResults do
+                                match outcome with
+                                    | Completed(value, state') ->
+                                        let! continued = continueObject state' (catchEffect.ContinueObject value)
+                                        acc <- acc @ continued
+                                    | Raised error ->
+                                        let! handledResults = runner.Run(entryState, catchEffect.HandlerObject error)
+                                        for handled in handledResults do
+                                            match handled with
+                                                | Completed(value, state') ->
+                                                    let! continued = continueObject state' (catchEffect.ContinueObject value)
+                                                    acc <- acc @ continued
+                                                | Raised e -> acc <- acc @ [ Raised e ]
+                                                | Aborted state' -> acc <- acc @ [ Aborted state' ]
+                                    | Aborted state' ->
+                                        acc <- acc @ [ Aborted state' ]
+                            return acc
+                        }
+
+                    let runFinally (entryState : 'st) (finallyEffect : IFinallyEffect<'ctx>) : Async<List<HandlerOutcome<'retx, 'st>>> =
+                        let completed = ref false
+                        async {
+                            try
+                                let! bodyResults = runner.Run(entryState, finallyEffect.BodyObject)
+                                let mutable acc : List<HandlerOutcome<'retx, 'st>> = []
+
+                                for outcome in bodyResults do
+                                    let! next =
+                                        async {
+                                            match runCompensation finallyEffect.CompensationAction with
+                                                | Some error -> return [ Raised error ]
+                                                | None ->
+                                                    match outcome with
+                                                        | Completed(value, state') ->
+                                                            return! continueObject state' (finallyEffect.ContinueObject value)
+                                                        | Raised error -> return [ Raised error ]
+                                                        | Aborted state' -> return [ Aborted state' ]
+                                        }
+                                    acc <- acc @ next
+
+                                if List.isEmpty bodyResults then
+                                    match runCompensation finallyEffect.CompensationAction with
+                                        | Some error -> acc <- acc @ [ Raised error ]
+                                        | None -> ()
+
+                                completed.Value <- true
+                                return acc
+                            finally
+                                if not completed.Value then
+                                    finallyEffect.CompensationAction()
+                        }
+
+                    async {
+                        try
+                            match program with
+                                | Pure ret -> return [ Completed(ret, state) ]
+                                | Effect effect ->
+                                    match box effect with
+                                        | :? ICatchEffect<'ctx> as catchEffect ->
+                                            return! runCatch state catchEffect
+                                        | :? IFinallyEffect<'ctx> as finallyEffect ->
+                                            return! runFinally state finallyEffect
+                                        | _ ->
+                                            let cont =
+                                                {
+                                                    Continue = fun state program -> runner.Run(state, program)
+                                                    Abort = fun state -> async { return [ Aborted state ] }
+                                                }
+                                            match this.TryStep(state, effect, cont) with
+                                                | Some computation -> return! computation
+                                                | None -> return [ Raised (UnhandledEffectException(effect)) ]
+                                | Delay f -> return! runner.Run(state, f ())
+                                | Await node ->
+                                    let! value = node.Computation
+                                    return! runner.Run(state, node.Continuation value)
+                        with e ->
+                            return [ Raised e ]
+                    }
             }
 
         async {
-            let! results = loop this.Start program
+            let! results = runner.Run(this.Start, program)
             return
                 results
-                |> List.map (fun (ret, state) ->
-                    ret, this.Finish(state))
+                |> List.choose (function
+                    | Completed(ret, state) -> Some(ret, this.Finish(state))
+                    | Aborted _ -> None
+                    | Raised error -> raise error)
         }
 
     /// Runs the given program, producing a list of results.
@@ -114,8 +210,16 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
 
     let table =
         let table = System.Collections.Generic.Dictionary<Type, int>()
-        for t in handler1.HandledEffectTypes do table.[t] <- 0
-        for t in handler2.HandledEffectTypes do table.[t] <- 1
+        for t in handler1.HandledEffectTypes do
+            if table.ContainsKey t then
+                raise (InvalidOperationException(
+                    sprintf "Effect type %O is registered by multiple handlers in this combination" t))
+            table.[t] <- 0
+        for t in handler2.HandledEffectTypes do
+            if table.ContainsKey t then
+                raise (InvalidOperationException(
+                    sprintf "Effect type %O is registered by multiple handlers in this combination" t))
+            table.[t] <- 1
         table
 
     /// Looks up a type by walking up the base-class chain (supports handlers that declare base-class types).
@@ -129,17 +233,34 @@ type private CombinedHandler<'ctx, 'ret, 'st1, 'fin1, 'st2, 'fin2, 'fin>
     override _.Start = handler1.Start, handler2.Start
 
     /// Attempts to handle a single effect, routed via the dispatch table.
+    /// If the routed handler declines (returns None), the other handler is still
+    /// given a chance via the linear fallback, so a catch-all registered at an
+    /// abstract base type is not shadowed by a more specific but declining handler.
     override _.TryStep((state1, state2), effect, cont) =
-        let step1 = fun state1' program -> cont (state1', state2) program
-        let step2 = fun state2' program -> cont (state1, state2') program
+        let step1 =
+            {
+                Continue = fun state1' program -> cont.Continue (state1', state2) program
+                Abort = fun state1' -> cont.Abort (state1', state2)
+            }
+        let step2 =
+            {
+                Continue = fun state2' program -> cont.Continue (state1, state2') program
+                Abort = fun state2' -> cont.Abort (state1, state2')
+            }
+        let fallback () =
+            handler1.TryStep(state1, effect, step1)
+            |> Option.orElseWith (fun () ->
+                handler2.TryStep(state2, effect, step2))
         match lookup (effect.GetType()) with
-            | Some 0 -> handler1.TryStep(state1, effect, step1)
-            | Some 1 -> handler2.TryStep(state2, effect, step2)
-            | _ ->
-                // Linear fallback: handlers for effects not in the registry or of undeclared types
-                handler1.TryStep(state1, effect, step1)
-                |> Option.orElseWith (fun () ->
-                    handler2.TryStep(state2, effect, step2))
+            | Some 0 ->
+                match handler1.TryStep(state1, effect, step1) with
+                    | Some result -> Some result
+                    | None -> fallback ()
+            | Some 1 ->
+                match handler2.TryStep(state2, effect, step2) with
+                    | Some result -> Some result
+                    | None -> fallback ()
+            | _ -> fallback ()
 
     /// Combines the given handlers' final states.
     override _.Finish((state1, state2)) =

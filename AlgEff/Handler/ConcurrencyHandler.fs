@@ -33,24 +33,33 @@ type PureConcurrencyHandler<'env when 'env :> ConcurrencyContext and 'env :> Env
 
     /// Manages program control.
     override _.TryStep(queue, effect, cont) =
+        match box effect with
+            | :? ConcurrencyEffect<'env, Program<'env, unit>> as concurrencyEff ->
+                let contUnit =
+                    box cont :?> HandlerCont<'env, unit, Queue<unit -> Program<'env, unit>>, 'stx>
 
-        /// Runs the next queued program.
-        let run queue =
-            let getProgram, queue' = queue |> Queue.dequeue
-            cont queue' <| getProgram ()
+                let run queue =
+                    let getProgram, queue' = queue |> Queue.dequeue
+                    contUnit.Continue queue' <| getProgram ()
 
-        Handler.tryStep effect (fun (concurrencyEff : ConcurrencyEffect<'env, _>) ->
-            match concurrencyEff.Case with
-                | Fork eff ->
-                    let queue' = queue |> Queue.enqueue eff.Cont
-                    cont queue' eff.Program
-                | Yield eff ->
-                    queue |> Queue.enqueue eff.Cont |> run
-                | Exit eff ->
-                    if queue |> Queue.isEmpty then
-                        cont queue <| eff.Cont ()
-                    else
-                        run queue)
+                let computation =
+                    match concurrencyEff.Case with
+                        | Fork eff ->
+                            let queue' = queue |> Queue.enqueue eff.Cont
+                            contUnit.Continue queue' eff.Program
+                        | Yield eff ->
+                            queue |> Queue.enqueue eff.Cont |> run
+                        | Exit eff ->
+                            if queue |> Queue.isEmpty then
+                                contUnit.Continue queue <| eff.Cont ()
+                            else
+                                async {
+                                    let! aborted = contUnit.Abort queue
+                                    let! next = run queue
+                                    return aborted @ next
+                                }
+                Some(box computation :?> Async<List<HandlerOutcome<'retx, 'stx>>>)
+            | _ -> None
 
     /// Handles Fork, Yield, and Exit effects.
     override _.HandledEffectTypes =

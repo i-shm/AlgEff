@@ -39,9 +39,6 @@ and Program<'ctx, 'ret> =
     /// Async suspension point.
     | Await of AwaitNode<'ctx, 'ret>
 
-    /// Exception catch (the basis for try/with and try/finally).
-    | Catch of Program<'ctx, 'ret> * (exn -> Program<'ctx, 'ret>)
-
 /// A single-step effect within a program.
 and Effect<'ctx, 'ret> = Effect<Program<'ctx, 'ret>>
 
@@ -61,14 +58,79 @@ type AwaitImpl<'a, 'ctx, 'ret>(computation : Async<'a>, continuation : 'a -> Pro
 module Program =
 
     /// Binds two programs together in the same context.
-    let rec bind (f : _ -> Program<'ctx, _>) (program : Program<'ctx, _>) =
+    let rec bind (f : 'A -> Program<'Ctx, 'B>) (program : Program<'Ctx, 'A>) : Program<'Ctx, 'B> =
         match program with
-            | Effect effect -> effect.Map(bind f) |> Program.Effect
-            | Pure x -> f x
-            | Delay thunk -> Delay (fun () -> bind f (thunk ()))
-            | Await node ->
-                Await (ObjectAwaitImpl<'ctx, _>(node.Computation, fun value -> bind f (node.Continuation value)))
-            | Catch (comp, handler) -> Catch (bind f comp, fun e -> bind f (handler e))
+            | Effect (effect : Effect<'Ctx, 'A>) ->
+                effect.Map(bind f) |> Program.Effect
+            | Pure x ->
+                f x
+            | Delay thunk ->
+                Delay (fun () -> bind f (thunk ()))
+            | Await (node : AwaitNode<'Ctx, 'A>) ->
+                Await (ObjectAwaitImpl<'Ctx, 'B>(node.Computation, fun value -> bind f (node.Continuation value)))
+
+/// Internal exception scope contract (intercepted by the run loop, never routed to user handlers).
+type ICatchEffect<'ctx> =
+
+    /// The protected computation (exactly the try body), boxed so the run loop can execute it generically.
+    abstract member BodyObject : Program<'ctx, obj>
+
+    /// Exception handler (the with clause), boxed like BodyObject.
+    abstract member HandlerObject : exn -> Program<'ctx, obj>
+
+    /// Continuation running after the scope resolves.
+    abstract member ContinueObject : obj -> obj
+
+/// Internal native resource scope contract (intercepted by the run loop, never routed to user handlers).
+type IFinallyEffect<'ctx> =
+
+    /// The scoped computation, boxed so the run loop can execute it generically.
+    abstract member BodyObject : Program<'ctx, obj>
+
+    /// Native cleanup (unit -> unit, per the CE protocol for try/finally).
+    abstract member CompensationAction : (unit -> unit) with get
+
+    /// Continuation running after the scope resolves.
+    abstract member ContinueObject : obj -> obj
+
+/// Exception scope effect.
+/// Program.bind maps the continuation only: the body and handler stay inside the scope.
+type CatchEffect<'ctx, 'a, 'next>(body : Program<'ctx, 'a>, handler : exn -> Program<'ctx, 'a>, cont : 'a -> 'next) =
+    inherit Effect<'next>()
+
+    member _.Body = body
+    member _.Handler = handler
+    member _.Cont v = cont v
+
+    override _.Map(g : 'next -> 'b) =
+        CatchEffect<'ctx, 'a, 'b>(body, handler, fun v -> g (cont v)) :> Effect<'b>
+
+    interface ICatchEffect<'ctx> with
+        member _.BodyObject =
+            Program.bind (fun value -> Pure (box value)) body
+        member _.HandlerObject e =
+            Program.bind (fun value -> Pure (box value)) (handler e)
+        member _.ContinueObject value =
+            box (cont (value :?> 'a))
+
+/// Native resource scope effect.
+/// The compensation runs on success, on exception, on branch abort, and on cancellation.
+type FinallyEffect<'ctx, 'a, 'next>(body : Program<'ctx, 'a>, compensation : unit -> unit, cont : 'a -> 'next) =
+    inherit Effect<'next>()
+
+    member _.Body = body
+    member _.Compensation = compensation
+    member _.Cont v = cont v
+
+    override _.Map(g : 'next -> 'b) =
+        FinallyEffect<'ctx, 'a, 'b>(body, compensation, fun v -> g (cont v)) :> Effect<'b>
+
+    interface IFinallyEffect<'ctx> with
+        member _.BodyObject =
+            Program.bind (fun value -> Pure (box value)) body
+        member _.CompensationAction = compensation
+        member _.ContinueObject value =
+            box (cont (value :?> 'a))
 
 /// Program builder.
 type ProgramBuilder() =
@@ -87,27 +149,24 @@ type ProgramBuilder() =
             else this.Zero ())
     member this.For(sequence : seq<'a>, body : 'a -> Program<'ctx, unit>) =
         Delay (fun () ->
-            (this.Zero (), sequence) ||> Seq.fold (fun acc item -> acc >>= (fun () -> body item)))
+            use enumerator = sequence.GetEnumerator()
+            let rec loop () =
+                if enumerator.MoveNext() then
+                    body enumerator.Current >>= (fun () -> loop ())
+                else
+                    this.Zero ()
+            loop ())
     member this.TryWith(comp : Program<'ctx, 'a>, handler : exn -> Program<'ctx, 'a>) =
-        Catch (comp, handler)
-    member this.TryFinally(comp : Program<'ctx, 'a>, compensation : Program<'ctx, unit>) =
-        let compensationRan = ref false
-        let runCompensation () =
-            if compensationRan.Value then
-                this.Zero ()
-            else
-                compensationRan.Value <- true
-                compensation
-        let tryFinallyProgram =
-            let withCompensation program =
-                program >>= (fun v -> runCompensation () >>= (fun () -> this.Return v))
-            Catch (withCompensation comp, fun e -> runCompensation () >>= (fun () -> raise e))
-        Delay (fun () ->
-            compensationRan.Value <- false
-            tryFinallyProgram)
+        Program.Effect (CatchEffect<'ctx, 'a, Program<'ctx, 'a>>(comp, handler, Pure))
+    member this.TryFinally(comp : Program<'ctx, 'a>, compensation : unit -> unit) =
+        Program.Effect (FinallyEffect<'ctx, 'a, Program<'ctx, 'a>>(comp, compensation, Pure))
     member this.Using(resource : 'a when 'a :> System.IDisposable, body : 'a -> Program<'ctx, 'b>) =
-        let dispose = Delay (fun () -> resource.Dispose (); this.Zero ())
-        this.TryFinally (body resource, dispose)
+        Program.Effect (FinallyEffect<'ctx, 'b, Program<'ctx, 'b>>(
+            Delay (fun () -> body resource),
+            (fun () ->
+                if not (Object.ReferenceEquals(box resource, null)) then
+                    resource.Dispose ()),
+            Pure))
 
 [<AutoOpen>]
 module ProgramBuilder =

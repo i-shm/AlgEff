@@ -17,8 +17,8 @@ type PickTrue<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret
         Handler.tryStep effect (fun (nonDetEff : NonDetEffect<_>) ->
             match nonDetEff.Case with
                 | Decide eff ->
-                    cont NoState (eff.Cont(true))
-                | Fail _ -> async { return [] })
+                    cont.Continue NoState (eff.Cont(true))
+                | Fail _ -> cont.Abort NoState)
 
     override _.HandledEffectTypes =
         [ typeof<DecideEffect<Program<'env, 'ret>>>
@@ -35,15 +35,34 @@ type PickMax<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
             match nonDetEff.Case with
                 | Decide eff ->
                     async {
-                        let! pairsTrue = cont NoState (eff.Cont(true))
-                        let! pairsFalse = cont NoState (eff.Cont(false))
+                        let! pairsTrue = cont.Continue NoState (eff.Cont(true))
+                        let! pairsFalse = cont.Continue NoState (eff.Cont(false))
                         let all = pairsTrue @ pairsFalse
+                        let completed =
+                            all
+                            |> List.choose (function
+                                | Completed(ret, state) -> Some(ret, state)
+                                | _ -> None)
+                        let rest =
+                            all
+                            |> List.choose (function
+                                | Completed _ -> None
+                                | Raised error -> Some(Raised error)
+                                | Aborted state -> Some(Aborted state))
                         return
-                            match all with
-                                | [] -> []
-                                | _ -> [ List.maxBy fst all ]
+                            match completed with
+                                | [] -> rest
+                                | _ ->
+                                    let ret, state =
+                                        completed.Tail
+                                        |> List.fold
+                                            (fun best item ->
+                                                let itemValue = box (fst item) :?> System.IComparable
+                                                if itemValue.CompareTo(box (fst best)) > 0 then item else best)
+                                            completed.Head
+                                    rest @ [ Completed(ret, state) ]
                     }
-                | Fail _ -> async { return [] })
+                | Fail _ -> cont.Abort NoState)
 
     override _.HandledEffectTypes =
         [ typeof<DecideEffect<Program<'env, 'ret>>>
@@ -60,11 +79,11 @@ type PickAll<'env, 'ret when 'env :> NonDetContext and 'env :> Environment<'ret>
             match nonDetEff.Case with
                 | Decide eff ->
                     async {
-                        let! pairsTrue = cont NoState (eff.Cont(true))
-                        let! pairsFalse = cont NoState (eff.Cont(false))
+                        let! pairsTrue = cont.Continue NoState (eff.Cont(true))
+                        let! pairsFalse = cont.Continue NoState (eff.Cont(false))
                         return pairsTrue @ pairsFalse
                     }
-                | Fail _ -> async { return [] })
+                | Fail _ -> cont.Abort NoState)
 
     override _.HandledEffectTypes =
         [ typeof<DecideEffect<Program<'env, 'ret>>>

@@ -2,6 +2,8 @@ namespace AlgEff.Test
 
 open Microsoft.VisualStudio.TestTools.UnitTesting
 
+open System.Threading
+
 open AlgEff.Effect
 open AlgEff.Handler
 
@@ -68,3 +70,32 @@ type AsyncTest() =
                 |> NonDetLogEnv(NonDetHandler.pickAll).Handler.RunMany
                 |> List.map fst
         Assert.AreEqual([ 10; 20 ], results)
+
+    [<TestMethod>]
+    member _.UsingDisposesWhenRunManyAsyncIsCancelled() =
+        use started = new ManualResetEventSlim(false)
+        use disposed = new ManualResetEventSlim(false)
+        use cts = new CancellationTokenSource()
+        let resource =
+            { new System.IDisposable with
+                member _.Dispose() = disposed.Set() |> ignore }
+        let program =
+            effect {
+                use _ = resource
+                started.Set() |> ignore
+                let! _ =
+                    async {
+                        do! Async.Sleep 1000000
+                        return 0
+                    }
+                return ()
+            }
+        Async.StartWithContinuations(
+            StateEnv(0).Handler.RunManyAsync(program),
+            ignore,
+            ignore,
+            ignore,
+            cts.Token)
+        Assert.IsTrue(started.Wait 1000)
+        cts.Cancel()
+        Assert.IsTrue(disposed.Wait 1000)
