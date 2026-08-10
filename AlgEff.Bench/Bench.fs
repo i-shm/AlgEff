@@ -105,8 +105,6 @@ type NonDetBench() =
 module Program =
 
     [<EntryPoint>]
-    let main _ =
-        BenchmarkRunner.Run<StateBench>() |> ignore
-        BenchmarkRunner.Run<CombinedDispatchBench>() |> ignore
-        BenchmarkRunner.Run<NonDetBench>() |> ignore
+    let main args =
+        BenchmarkSwitcher.FromAssembly(typeof<StateBench>.Assembly).Run(args) |> ignore
         0

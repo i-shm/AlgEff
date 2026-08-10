@@ -111,6 +111,15 @@ type Env() =
 - Async computations bound inside multi-shot programs (e.g. `pickAll`) re-execute once per branch
 - With two `StateContext` implementations in scope, explicit type annotations are required (e.g. `State.put<int, Env>`)
 
+### Target frameworks and CI
+
+- The NuGet package targets `netstandard2.0`, `net8.0`, and `net10.0`
+- `netstandard2.0` keeps broad consumer compatibility
+- `net8.0` is the current LTS runtime target
+- `net10.0` is the primary development and benchmark target for the 2.0 runtime
+- CI builds and tests `net8.0` and `net10.0` on Linux, macOS, and Windows
+- BenchmarkDotNet runs are available through a manual GitHub Actions workflow
+
 ## Creating a runtime environment
 
 In order to run this program (and potentially cause actual side-effects), we must define an environment that satisfies the program's requirements:

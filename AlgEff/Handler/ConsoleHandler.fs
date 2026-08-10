@@ -1,6 +1,7 @@
 ﻿namespace AlgEff.Handler
 
 open System
+open System.IO
 open AlgEff.Effect
 
 /// Pure functional model of a console.
@@ -113,8 +114,32 @@ type PureConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Envir
           typeof<ReadLineEffect<Program<'env, 'ret>>> ]
 
 /// Actual console handler.
-type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Environment<'ret>>(env : 'env) =
+type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Environment<'ret>>(reader : TextReader, writer : TextWriter, env : 'env) =
     inherit SimpleHandler<'env, 'ret, NoState>()
+
+    let writeLineAsync (str : string) =
+        async {
+            let! cancellationToken = Async.CancellationToken
+#if NETSTANDARD2_0
+            do! writer.WriteLineAsync(str) |> Async.AwaitTask
+#else
+            do! writer.WriteLineAsync(MemoryExtensions.AsMemory(str), cancellationToken) |> Async.AwaitTask
+#endif
+        }
+
+    let readLineAsync () =
+        async {
+            let! cancellationToken = Async.CancellationToken
+#if NETSTANDARD2_0
+            return! reader.ReadLineAsync() |> Async.AwaitTask
+#else
+            let! line = reader.ReadLineAsync(cancellationToken).AsTask() |> Async.AwaitTask
+            return line
+#endif
+        }
+
+    new(env : 'env) =
+        ActualConsoleHandler(Console.In, Console.Out, env)
 
     /// No internal state to maintain.
     override _.Start = NoState
@@ -122,25 +147,27 @@ type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Env
     /// Writes to or reads from the console.
     override _.TryStep(NoState, effect, cont) =
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
-            match consoleEff.Case with
-                | WriteLine eff ->
-                    System.Console.WriteLine(eff.String)
-                    let next = eff.Cont()
-                    cont.Continue NoState next
-                | ReadLine eff ->
-                    let str = System.Console.ReadLine()
-                    let next = eff.Cont(str)
-                    cont.Continue NoState next)
+            async {
+                match consoleEff.Case with
+                    | WriteLine eff ->
+                        do! writeLineAsync eff.String
+                        let next = eff.Cont()
+                        return! cont.Continue NoState next
+                    | ReadLine eff ->
+                        let! str = readLineAsync ()
+                        let next = eff.Cont(str)
+                        return! cont.Continue NoState next
+            })
 
     override _.TryStepSync(NoState, effect, cont) =
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
             match consoleEff.Case with
                 | WriteLine eff ->
-                    System.Console.WriteLine(eff.String)
+                    writer.WriteLine(eff.String)
                     let next = eff.Cont()
                     cont.Continue NoState next
                 | ReadLine eff ->
-                    let str = System.Console.ReadLine()
+                    let str = reader.ReadLine()
                     let next = eff.Cont(str)
                     cont.Continue NoState next)
 
@@ -148,11 +175,11 @@ type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Env
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
             match consoleEff.Case with
                 | WriteLine eff ->
-                    System.Console.WriteLine(eff.String)
+                    writer.WriteLine(eff.String)
                     let next = eff.Cont()
                     cont.ContinueTail NoState next
                 | ReadLine eff ->
-                    let str = System.Console.ReadLine()
+                    let str = reader.ReadLine()
                     let next = eff.Cont(str)
                     cont.ContinueTail NoState next)
 
@@ -160,11 +187,11 @@ type ActualConsoleHandler<'env, 'ret when 'env :> ConsoleContext and 'env :> Env
         Handler.tryStep effect (fun (consoleEff : ConsoleEffect<_>) ->
             match consoleEff.Case with
                 | WriteLine eff ->
-                    System.Console.WriteLine(eff.String)
+                    writer.WriteLine(eff.String)
                     let next = eff.Cont()
                     cont.Continue NoState next
                 | ReadLine eff ->
-                    let str = System.Console.ReadLine()
+                    let str = reader.ReadLine()
                     let next = eff.Cont(str)
                     cont.Continue NoState next)
 

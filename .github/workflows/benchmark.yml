@@ -1,0 +1,35 @@
+name: BenchmarkDotNet
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: benchmark / ${{ matrix.framework }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework:
+          - net8.0
+          - net10.0
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Run benchmarks
+        run: dotnet run --project AlgEff.Bench/AlgEff.Bench.fsproj --configuration Release --framework ${{ matrix.framework }}
+
+      - name: Upload BenchmarkDotNet artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.framework }}
+          path: BenchmarkDotNet.Artifacts/**
